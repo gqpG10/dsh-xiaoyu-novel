@@ -140,3 +140,13 @@ test('安装：版本号与 tag 不符也不装（防包与你以为的版本不
   assert.equal(out.kind, 'bad-package')
   assert.match(out.error, /不一致/)
 })
+test('三处接线：面板路由 / 一键升级路由 / CLI 子命令都会走私有库', () => {
+  const read = (rel) => readFileSync(path.join(rootDir, rel), 'utf8')
+  const server = read('index.mjs')
+  assert.ok(server.includes('checkGithubVersion({ pkg, force: fresh })'), 'update-check 要走私有库')
+  assert.ok(server.includes('applyGithubUpdate({'), 'self-update 要走 GitHub 安装')
+  assert.ok(server.includes("resolveGithubRepo(pkgSelf, process.env)"), 'self-update 要按仓库解析决定分支')
+  const bin = read('bin/xiaoyu-novel.mjs')
+  assert.ok(bin.includes("command === 'update'"), 'CLI 要有 update 子命令')
+  assert.ok(bin.includes('fetchLatestGithubVersion'), 'CLI 要查 GitHub 版本')
+})
