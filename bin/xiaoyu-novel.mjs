@@ -21,6 +21,7 @@
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -33,6 +34,8 @@ import { applyGithubUpdate, fetchLatestGithubVersion, resolveGithubRepo } from '
 import { resolveGithubToken } from '../lib/github-token.mjs'
 import { describeInspection, inspectToken, writeEmbeddedToken } from '../lib/token-tools.mjs'
 import { compareVersions, currentVersion } from '../lib/version.mjs'
+import { exportPortable, importPortable, readPortable, restoreHint } from '../lib/portable.mjs'
+import { diagnose, renderDiagnosis } from '../lib/doctor.mjs'
 import { analyzeChapter } from '../lib/gate-core.mjs'
 import { auditMarkdown, auditProject, stripFrontmatter } from '../lib/audit-core.mjs'
 import { checkFormat } from '../lib/format-core.mjs'
@@ -1062,6 +1065,17 @@ const HELP_TEXT = `小鱼（xiaoyu）—— 网文创作项目 CLI
   xiaoyu-novel update [--check] [--apply] [--json]
                          从作者 GitHub 私有库查最新版本；--apply 下载该 tag 源码包、
                          校验包名与版本、整目录备份后覆盖插件目录（装完重启 DSH）
+  xiaoyu-novel portable export <包路径> [--home <DSH_HOME>] [--profile web] [--no-secrets]
+                         把整台机器的 DSH 个性打成一个文件（patch/预设/技能/工作区/渠道 key）：
+                         换手机、换电脑时解开就是这台机器，助手名字和面板不会再变
+  xiaoyu-novel portable import <包路径> [--home <DSH_HOME>] [--dry-run]
+                         还原搬迁包（目标已存在的文件先备份成 .bak-portable-<时间戳>）
+  xiaoyu-novel portable show <包路径>
+                         只看包里有什么、来自哪台机器、该怎么还原（不写盘）
+  xiaoyu-novel doctor [--home <DSH_HOME>] [--profile web] [--json] [--fix]
+                         换设备后「助手名字变了/面板打不开/新建对话不是小鱼」逐条查：
+                         预设源文件、两层 patch 托管块、默认预设被谁抢、预设切换器是否被藏、
+                         方法论技能、工作区列表；--fix 就地改回（改前备份）
   xiaoyu-novel clean [dir] [--apply] [--undo] [--json]
                          清账本：超长条目压成结论（明细移到 archive/ledger-details/）、
                          大账本按章归档到 archive/、已写【推进章】的超期伏笔升 progressing、
@@ -1447,6 +1461,191 @@ function findInNovel(root, needle, options) {
   }
   return { ok: true, root, needle, total, files, truncated: total > hits.length, hits }
 }
+
+/**
+ * portable：跨设备搬迁（export / import / show）。
+ *
+ * 一次搬家要把 patch 两层、预设源文件、技能包、工作区清单、渠道 key 一起带走——
+ * 少一样，用户看到的就是「助手名字变了」「面板打不开」「技能没了」。所以固定成
+ * 一个包、一条命令，不靠记忆列文件。
+ */
+function cmdPortable(rest) {
+  const action = rest[0]
+  if (action === undefined || action === '--help' || action === '-h') {
+    fail('用法：xiaoyu-novel portable export <包路径> [--home <DSH_HOME>] [--profile web] [--no-secrets]\n' +
+      '      xiaoyu-novel portable import <包路径> [--home <DSH_HOME>] [--dry-run]\n' +
+      '      xiaoyu-novel portable show <包路径>')
+  }
+  let file = null
+  let home = null
+  let profile = 'web'
+  let secrets = true
+  let dryRun = false
+  for (let i = 1; i < rest.length; i++) {
+    const arg = rest[i]
+    if (arg === '--home') { home = rest[++i]; continue }
+    if (arg.startsWith('--home=')) { home = arg.slice('--home='.length); continue }
+    if (arg === '--profile') { profile = rest[++i]; continue }
+    if (arg.startsWith('--profile=')) { profile = arg.slice('--profile='.length); continue }
+    if (arg === '--no-secrets') { secrets = false; continue }
+    if (arg === '--dry-run') { dryRun = true; continue }
+    if (arg.startsWith('-')) fail('未知选项「' + arg + '」——portable 只认 --home / --profile / --no-secrets / --dry-run')
+    if (file === null) { file = arg; continue }
+    fail('多余的位置参数「' + arg + '」')
+  }
+  if (file === null || file === '') fail('缺少搬迁包路径（例：xiaoyu-novel portable export ~/dsh-portable.tar.gz）')
+  const targetHome = path.resolve(home ?? process.env.DSH_HOME ?? path.join(homedir(), '.dsh'))
+
+  if (action === 'export') {
+    const result = exportPortable({ home: targetHome, profile, secrets, out: file })
+    console.log('搬迁包已生成：' + result.out)
+    console.log('  文件 ' + result.files + ' 个 / ' + (result.bytes / 1024).toFixed(1) + ' KB' +
+      (secrets ? '（含渠道 key）' : '（不含渠道 key，换机后要重填）'))
+    console.log('  来源 DSH home：' + targetHome + '（profile ' + profile + '，DSH ' + (result.manifest.sourceVersion ?? '版本未知') + '）')
+    console.log('')
+    console.log(restoreHint(result.manifest))
+    return
+  }
+
+  if (action === 'show') {
+    const { manifest, entries } = readPortable(file)
+    console.log('搬迁包：' + path.resolve(file))
+    console.log('  来自：' + manifest.dshHome + '（profile ' + manifest.profile + '，DSH ' + (manifest.sourceVersion ?? '版本未知') + '）')
+    console.log('  打包时间：' + manifest.createdAt)
+    console.log('  文件 ' + entries.length + ' 个，' + (secrets ? '含渠道 key' : '不含渠道 key'))
+    const dirs = {}
+    for (const entry of entries) {
+      const top = entry.name.split('/').slice(0, 3).join('/')
+      dirs[top] = (dirs[top] ?? 0) + 1
+    }
+    for (const [dir, count] of Object.entries(dirs).sort()) console.log('    ' + dir + '  ×' + count)
+    console.log('')
+    console.log(restoreHint(manifest))
+    return
+  }
+
+  if (action === 'import') {
+    const result = importPortable({ file, home: targetHome, dryRun })
+    if (dryRun) {
+      console.log('（试运行，未写盘）会写 ' + result.written.length + ' 个文件到 ' + targetHome + '：')
+      for (const row of result.written.slice(0, 40)) console.log('  ' + row.file)
+      if (result.written.length > 40) console.log('  …… 还有 ' + (result.written.length - 40) + ' 个')
+      return
+    }
+    let backups = 0
+    for (const row of result.written) if (row.backup !== null) backups += 1
+    console.log('已还原 ' + result.written.length + ' 个文件到 ' + targetHome + '（其中 ' + backups + ' 个原有文件已备份为 *.bak-portable-*）')
+    console.log('')
+    console.log('下一步：重启 DSH，打开「设置 → Agent 预设」确认「小鱼创作 (Xiaoyu)」在列。')
+    console.log('  不在列＝插件没装齐，按下面的清单装：')
+    console.log('')
+    console.log(restoreHint(result.manifest))
+    return
+  }
+
+  fail('未知动作「' + action + '」——portable 可用：export / import / show')
+}
+
+
+/**
+ * doctor：换设备后「助手名字变了 / 面板打不开 / 新建对话不是小鱼」逐条查。
+ *
+ * 这三类症状的共同点：插件装好了、配置也在，只是**值被别人改过**——默认预设被
+ * dsh-ops 抢走、预设切换器被 ui-settings 藏起来、预设源文件没落地。日志里没有
+ * 任何报错，只能靠配置事实判定，所以做成一条命令。
+ */
+function cmdDoctor(rest) {
+  let home = null
+  let profile = 'web'
+  let asJson = false
+  let fix = false
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]
+    if (arg === '--home') { home = rest[++i]; continue }
+    if (arg.startsWith('--home=')) { home = arg.slice('--home='.length); continue }
+    if (arg === '--profile') { profile = rest[++i]; continue }
+    if (arg.startsWith('--profile=')) { profile = arg.slice('--profile='.length); continue }
+    if (arg === '--json') { asJson = true; continue }
+    if (arg === '--fix') { fix = true; continue }
+    fail('未知选项「' + arg + '」——doctor 只认 --home / --profile / --json / --fix')
+  }
+  const targetHome = path.resolve(home ?? process.env.DSH_HOME ?? path.join(homedir(), '.dsh'))
+  const result = diagnose({ home: targetHome, profile })
+  const fixes = fix ? applyDoctorFixes(targetHome, profile, result) : []
+  if (asJson) {
+    console.log(JSON.stringify({ ...result, home: targetHome, profile, fixes }, null, 2))
+    if (!result.ok) process.exitCode = 1
+    return
+  }
+  console.log('DSH home：' + targetHome + '（profile ' + profile + '）')
+  console.log('')
+  console.log(renderDiagnosis(result))
+  if (fixes.length > 0) {
+    console.log('')
+    console.log('已改：')
+    for (const line of fixes) console.log('  ' + line)
+    console.log('')
+    console.log('重启 DSH 生效。')
+  } else if (!result.ok || result.warns > 0) {
+    console.log('')
+    console.log('加 --fix 就地改回（改前会备份）。')
+  }
+  if (!result.ok) process.exitCode = 1
+}
+
+/**
+ * --fix 的写面：只改 doctor 报出来的那几处，改前备份，改完回读校验。
+ * 不动用户其它内容（patch 里块外的东西一字节不碰）。
+ */
+function applyDoctorFixes(home, profile, result) {
+  const changed = []
+  const needs = new Set(result.checks.filter((row) => row.level !== 'ok').map((row) => row.id))
+  const file = path.join(home, 'profiles', profile, 'cordis.patch.yml')
+  if (!existsSync(file)) return changed
+  let text = readFileSync(file, 'utf8')
+  const original = text
+
+  if (needs.has('default-preset')) {
+    const next = text.replace(/(\n\s*selectedDefault:\s*)\S+/, '$1xiaoyu-novel')
+    if (next !== text) { text = next; changed.push('默认预设 → xiaoyu-novel') }
+  }
+  if (needs.has('ui-settings')) {
+    const entry = patchEntryTextOf(text, 'ui-settings')
+    if (entry !== null && entry.includes('enabled: false')) {
+      text = text.replace(entry, entry.replace('enabled: false', 'enabled: true'))
+      changed.push('预设切换器 → 显示（ui-settings.enabled: true）')
+    }
+  }
+  if (needs.has('ops-force')) {
+    const entry = patchEntryTextOf(text, 'dsh-ops')
+    if (entry !== null) {
+      text = text.replace(entry, entry.replace(/forceDefaultOpsPtc:\s*(true|false)/, 'forceDefaultOpsPtc: false'))
+      changed.push('dsh-ops 不再抢默认预设（forceDefaultOpsPtc: false）')
+    } else {
+      // 没有 dsh-ops 覆盖行：追加一条只关开关的覆盖
+      text = text.trimEnd() + '\n\n- id: dsh-ops\n  name: "dsh-ops"\n  config:\n    global:\n      forceDefaultOpsPtc: false\n'
+      changed.push('新增 dsh-ops 覆盖行（forceDefaultOpsPtc: false）')
+    }
+  }
+  if (text === original) return changed
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+  writeFileSync(file + '.bak-doctor-' + stamp, original)
+  writeFileSync(file, text)
+  return changed
+}
+
+/** 从 patch 文本里截某条 `- id: <id>` 的文本块（doctor 命令行侧的小工具）。 */
+function patchEntryTextOf(text, id) {
+  const lines = String(text).split('\n')
+  const start = lines.findIndex((line) => line.trimEnd() === '- id: ' + id)
+  if (start === -1) return null
+  let end = lines.length
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].startsWith('- ')) { end = i; break }
+  }
+  return lines.slice(start, end).join('\n')
+}
+
 function main(argv) {
   const [command, ...rest] = argv
   if (command === '--help' || command === '-h' || command === 'help') {
@@ -1478,6 +1677,8 @@ function main(argv) {
   if (command === 'clean' || command === 'ledger-clean') return cmdClean(rest)
   if (command === 'update' || command === 'upgrade') return cmdUpdate(rest)
   if (command === 'token') return cmdToken(rest)
+  if (command === 'portable') return cmdPortable(rest)
+  if (command === 'doctor') return cmdDoctor(rest)
   if (command === undefined) {
     console.error('xiaoyu: 缺少子命令（init / stats / index / export / brief / wc / check / gate / report，--help 看用法）')
     process.exit(1)

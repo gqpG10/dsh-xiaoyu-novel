@@ -21,6 +21,34 @@
 - **工具面收窄**：主编只见「角色委派 + 内部检索 + 协调」白名单，帮手各带本行工具（审校只读、考据只带联网+落笔记）；每次请求的工具开销与上下文占用随之下降。
 - **素材考据**：research 帮手联网检索历史/地理/专业领域素材，笔记落 `novel/research/`，区分史实/通说/演义并附来源——DSH 架构的红利。
 - **创作台面板**：DSH 侧栏一键打开的可视化创作台——默认中栏全页面板，也可按「打开方式」设置整体搬进右侧栏（分栏：创作台中栏 + 文章页右侧栏 tab / 中间栏 / 右侧栏三选一，宿主 0.2.x 支持右侧栏）——概览（含书稿元信息编辑与分卷规划）/章节/角色/伏笔/关系图/时间线/设定/写作风格/索引板九个 tab；章节整页阅读（章纲对照 + 正文/章纲编辑保存 + 五维 + 状态流转）、project.yml 表单化编辑、写作风格查看与编辑（缺失时用默认基线创建）、账本与实体卡的人工编辑写面（编辑/新建/删除，带结构校验与确认弹层）、顶栏字号六档缩放、界面语言中文/English 可切与自动新版检测；章节列表与阅读页直接显示该章门禁分（人味指数 / 人写度），阅读页可一键复制交给主编的去 AI 味委派指令、逐句建议带「改」一键微调、整章「改」一次批量保守修（弹层确认后覆盖原文并重算分数，可「撤销」按快照恢复）；章末平收（网文钩子缺失）在门禁徽标上直接提示；章节表可按门禁分排序、顶部门禁趋势折线（门禁线点一下循环切换 78/82/86/90，写进 novel/xiaoyu.json）；「全书体检」一键查跨章重复、角色 0 出场、章纲点名未落地、字数离群与连续平收，报告导出到 novel/reports/；阅读页「复制全章」一次复制「章节名 + 正文」；概览显示今日新增字数；写作风格 tab 可一键套用语言档位；接入项目改为内联输入（不依赖原生弹窗）；顶部「接入项目」把已有 novel/ 目录登记为工作区；阅读页门禁分带与上次的差值；展开「去 AI 味建议」看逐句病灶（套话/长句/并列/破译）。
+- **3.0.0：换设备不再「助手名字变了、好多东西用不了」——一站式搬迁（0.25.0）**
+  - **真因（三条，全是漏件，不是 bug）**：
+    ① 你的个性散在 <DSH_HOME> 五个地方（home 层 patch、profile 层 patch、.agent-presets、skills、storages/workspace.json），
+    换机只拷插件目录必然缺块——缺 .agent-presets 就没有「小鱼创作」预设（助手名字变回 generic coding agent），
+    缺 skills 方法论技能全消失，缺 profile patch 模型渠道和主题跟着丢；
+    ② 遗留会话记录里还写着已不存在的预设 id（旧 `maoying-*` / `xiaoyu-*` 共 207 个历史子代理会话，
+    另有 6 个已注销的顶层会话），点开就是「打不开 / 空面板」；
+    ③ 新会话默认预设被 dsh-ops 抢成 `ops-ptc`（它的 `global.forceDefaultOpsPtc` 默认 true），
+    于是「新建对话」出来的不是小鱼。
+  - **修法一：新增 `xiaoyu-novel portable`**（`lib/portable.mjs`，零依赖自己写 ustar + gzip）：
+    `portable export <包>` 一条命令把整台机器的 DSH 个性打成**一个 .tar.gz**——
+    两层 patch、.agent-presets、skills、工作区清单、渠道 key、插件自带状态（破甲/免费模型/渠道包）；
+    `portable import <包>` 还原（原文件先备份成 `*.bak-portable-<时间戳>`，`--dry-run` 可预演）；
+    `portable show <包>` 只看不写。包内清单带依赖列表与还原三步，新机器照着装即可。
+    不打包 node_modules（355MB 且按平台不同）与会话日志，只带依赖清单，新机器 pnpm 重装。
+  - **修法二：默认预设归位**——关掉 `dsh-ops.global.forceDefaultOpsPtc`，
+    `agent-preset-registry.selectedDefault` 改回 `xiaoyu-novel`，新建对话默认就是小鱼。
+  - **修法三：把「显示代码工作视图 / 完整 Agent 预设切换」还给你**——
+    profile patch 里 `ui-settings.enabled` 原来是 `false`，等于把预设切换器整个藏了，
+    你连"换个预设试一下"都做不到；现在改回 `true`。
+  - **修法四：新增 `xiaoyu-novel doctor`**（`lib/doctor.mjs`）——把上述症状对应的
+    配置事实逐条查出来，不用猜：预设源文件齐不齐、两层 patch 托管块在不在、默认预设被谁抢、
+    预设切换器有没有被藏、dsh-ops 有没有强制、方法论技能缺哪些、工作区列表是否损坏。
+    `--fix` 就地改回（改前备份成 `*.bak-doctor-<时间戳>`），`--json` 给脚本用。
+  - 测试 **254 → 274**（新增 `portable-024` 十例：ustar 往返 / 超长路径拆 prefix / 清单齐全 /
+    不打包 node_modules 与会话 / `--no-secrets` / 导出读回 / 还原内容一致 / 重复还原先备份 /
+    dry-run 不落盘 / 目录穿越与坏包中文报错；`doctor-025` 十例：健康全绿 / 预设缺件报 error /
+    托管块缺失 / 默认被抢 / 切换器被藏 / 强制开关 / 技能缺失 / 工作区损坏 / patch 解析 / 渲染图标）。
 - **2.9.0：修「检查更新没反应」——结论就地显示，不再靠 4 秒后消失的 toast**（0.24.0）
   - **真因**：检测结果只发一条 `ok` 级 toast，4 秒自动消失；而且「已是最新」时
     版本胶囊按钮本身没有变化，用户点完看到界面跟点之前一模一样，主观判断就是「没反应」。
@@ -296,6 +324,46 @@ npm install -g dsh-xiaoyu-novel       # 或装成全局 xiaoyu 命令
 
 用户回「ok / 可以 / 继续」即视为确认，主编直接推进，不复述确认。
 
+## 换设备 / 多端同步
+
+搬设备时「助手名字变了、面板打不开、技能没了、新建对话不是小鱼」——全是**漏件**，不是 bug。DSH 的个性散在 <DSH_HOME> 五个地方，只拷插件目录必然缺块：
+
+| 位置 | 少了会怎样 |
+|---|---|
+| `<home>/cordis.patch.yml` | 小鱼预设那一整块托管行消失 → 预设选择器里没有「小鱼创作」，助手变回 generic coding agent |
+| `<home>/profiles/<profile>/cordis.patch.yml` | 模型渠道、主题字号、默认预设、界面开关全丢 |
+| `<home>/.agent-presets/xiaoyu-novel/` | 预设源文件（agent.cordis.yml / restrict.mjs / guard.mjs）缺失 → 声明行挂不上，面板与六个帮手一起消失 |
+| `<home>/skills/xiaoyu-*` | 八套方法论技能全没，主编派活时点不到方法论 |
+| `<home>/storages/workspace.json` | 工作区列表空 → 面板看不到任何书 |
+
+一条命令打包（含上面五样 + 渠道 key + 插件自带状态）：
+
+```bash
+xiaoyu-novel portable export ~/dsh-portable.tar.gz          # 含渠道 key
+xiaoyu-novel portable export ~/dsh-portable.tar.gz --no-secrets   # 不含 key，换机后重填
+```
+
+新机器上三步还原：
+
+```bash
+# ① 先装插件（清单会在包里的 restoreHint 打出来，照抄）
+dsh plugin --profile web add dsh-ops@0.5.4 dsh-unlag@1.17.5 ...
+dsh plugin --profile web add /path/to/dsh-xiaoyu-novel        # 本地源码包
+
+# ② 覆盖配置（原有文件自动备份成 *.bak-portable-<时间戳>）
+xiaoyu-novel portable import ~/dsh-portable.tar.gz --home "$DSH_HOME" --profile web
+
+# ③ 重启 DSH，设置 → Agent 预设 里确认「小鱼创作 (Xiaoyu)」在列
+```
+
+包里**不含** `node_modules`（355MB，且按平台不同）与 `sessions/`（会话日志，与设备无关），只带依赖清单与还原三步，新机器 pnpm 重装。
+
+**另外两件换机后常被误判成「坏了」的事**（3.0.0 已修）：
+
+- **新建对话默认不是小鱼**：`dsh-ops` 的 `global.forceDefaultOpsPtc` 默认会把新会话默认预设抢成 `ops-ptc`。3.0.0 起 profile patch 里显式关掉它，`selectedDefault` 归位到 `xiaoyu-novel`。
+- **找不到「完整 Agent 预设切换」**：`ui-settings.enabled` 原是 `false`，等于把预设切换器整个藏了。3.0.0 起默认 `true`。
+- **老会话点开空白/报错**：那是历史子代理会话记录里写着的旧预设 id（`maoying-*` / `xiaoyu-*`），预设早已注销。新开会话即可；主线会话不受影响。
+
 ## 创作台面板
 
 DSH 左侧栏底部点「**小鱼创作台**」打开创作台（改文件、跑流程之外，给肉眼看的驾驶舱）。打开方式在面板系统设置里三选一（立即记忆，对下一次打开生效）：
@@ -370,6 +438,14 @@ xiaoyu-novel report [dir] [--out <文件>]  # 全书质检报告（markdown）�
 xiaoyu-novel audit [dir] [--json] [--out <文件>]  # 全书体检：跨章重复、角色出场、章纲未落地、字数离群、连续平收
 xiaoyu-novel undo [dir] [章节]  # 撤销最近一次自动修（逐句改 / 整章改都有快照，每章保留 10 份）
 xiaoyu-novel progress [dir]     # 最近 30 天写作进度（每日总字数 + 今日新增）
+xiaoyu-novel portable export <包路径>  # 换设备：把整台机器的 DSH 个性打成**一个 .tar.gz**
+                            # （两层 patch / .agent-presets / skills / 工作区 / 渠道 key / 插件自带状态；
+                            # 不含 node_modules 与会话日志，只带依赖清单）
+xiaoyu-novel portable import <包路径> [--dry-run]  # 还原（原文件先备份成 *.bak-portable-<时间戳>）
+xiaoyu-novel portable show <包路径>    # 只看包里有什么、来自哪台机器、该怎么还原（不写盘）
+xiaoyu-novel doctor [--fix] [--json]  # 体检：预设源文件 / 两层 patch 托管块 / 默认预设被谁抢 /
+                            # 预设切换器是否被藏 / dsh-ops 是否强制 / 技能 / 工作区；
+                            # 换设备后「助手名字变了、面板打不开」先跑这一条
 xiaoyu-novel setup [dir]        # 开书九件套检查（逐项 ✓/缺，缺项退出码 1）
 ```
 
