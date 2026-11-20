@@ -11,7 +11,9 @@ const css = readFileSync(path.join(root, 'lib/base.css'), 'utf8')
 
 test('保存后走软刷新：lite 快照 + 保留账本块，不全量重拉', () => {
   assert.ok(client.includes('var reloadSoft = useCallback('), '缺 reloadSoft')
-  assert.ok(/reloadSoft[\s\S]{0,400}scope: "lite"/.test(client), '软刷新没用 lite')
+  // 0.22.0：软刷新从 scope=lite 换成 blocks=<首屏骨架>——比 lite 更精确（连
+  // 章节正文之外的大块都省了），但语义一样：只拉首屏要的，别全量重拉。
+  assert.ok(/reloadSoft[\s\S]{0,600}blocks: FIRST_SCREEN_BLOCKS/.test(client), '软刷新没用 blocks 裁剪')
   assert.ok(/\(d\.partial \|\| \[\]\)\.forEach/.test(client), '软刷新没把 lite 清空的块用旧值补回')
   assert.ok(client.includes('props.reloadSoft'), '保存后的定时刷新没接 reloadSoft')
 })

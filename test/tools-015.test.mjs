@@ -93,7 +93,9 @@ test('首屏精简体：账本/世界/章纲留空并标 partial，章节与角�
   assert.equal(lite.characters.length, 1, '角色卡必须在')
   assert.deepEqual(lite.memories, [])
   assert.deepEqual(lite.timeline, [])
-  assert.ok(Array.isArray(lite.partial) && lite.partial.length === 7, 'partial 应列出 7 个缺块')
+  // 0.22.0：lite 不再跳章节（章节列表就是骨架），partial 从 7 项变 6 项。
+  assert.ok(Array.isArray(lite.partial) && lite.partial.length === 6, 'partial 应列出 6 个缺块')
+  assert.ok(!lite.partial.includes('chapters'), '章节不该被标成缺块（首屏要用）')
   assert.ok(lite.partial.includes('memories'))
   const full = parseStateSnapshot(novel)
   assert.equal(full.memories.length, 2, '全量必须带账本正文')
@@ -115,7 +117,8 @@ test('客户端接线：工具弹层三页签 / 两段式快照 / 键盘变量 /
     'apiGet("slim-plan"',
     'apiPost("slim-apply"',
     'apiGet("ledger-stats"',
-    'scope: "lite"',
+    // 0.22.0：首屏从 scope=lite 升级为 blocks=<骨架>——粒度更细，语义同为「只拉骨架」。
+    'blocks: FIRST_SCREEN_BLOCKS',
     'reader.ledgerMissing',
     '--myt-vv-inset',
     'strongOnly',

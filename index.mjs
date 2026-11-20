@@ -74,11 +74,10 @@ import { analyzeChapter, paragraphHeat, fixSentence } from './lib/gate-core.mjs'
 import { auditMarkdown, auditProject } from './lib/audit-core.mjs'
 import { checkFormat } from './lib/format-core.mjs'
 import { checkSetup } from './lib/setup-core.mjs'
-import { selfUpdate } from './lib/self-update.mjs'
 // 0.18.0 私有库更新：版本源与安装包都走作者自己的 GitHub 仓库（见 lib/github-update.mjs）。
 import { applyGithubUpdate, fetchLatestGithubVersion, recordUpdate, resolveGithubRepo } from './lib/github-update.mjs'
 // 0.19.0 多端开箱即用：内嵌凭据兜底（环境变量仍优先）。
-import { resolveGithubToken } from './lib/github-token.mjs'
+import { EMBEDDED_TOKEN_ISSUED_AT, TOKEN_REFRESH_DAYS, resolveGithubToken, tokenAgeDays } from './lib/github-token.mjs'
 import { compareVersions, currentVersion, invalidateVersionCache } from './lib/version.mjs'
 import { gzipSync } from 'node:zlib'
 import { readFile } from 'node:fs/promises'
@@ -123,6 +122,8 @@ import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from
 import { chapterCast } from './lib/cast-core.mjs'
 // 静态体检（check 路由）与 CLI check 同源：直接复用 novel-parse 的检查器。
 import { checkProject } from './lib/novel-parse.mjs'
+// 0.22.0 重计算结果缓存：文件没动就别重算（audit 466ms / check 228ms 全是白烧）。
+import { cachedResult, clearResultCache, fingerprintOf, fingerprintOfCached } from './lib/result-cache.mjs'
 import { loadYamlLib, resolveDshHome } from './lib/yaml-loader.mjs'
 // 0.6.0 写作台：正文版本历史与全书搜索/替换（各失败各的，主流程不受影响）。
 import { listVersions, readVersion, snapshotChapter } from './lib/history-core.mjs'
@@ -1286,6 +1287,9 @@ async function checkGithubVersion({ pkg, force = false, timeoutMs = 8000 } = {})
   if (hit.ok) {
     info = {
       current, latest: hit.tag, repo, source: hit.source,
+      // 凭据年龄（0.22.0）：面板据此在快过期时劝一次，别等到更新失败才发现。
+      tokenAge: tokenAgeDays(EMBEDDED_TOKEN_ISSUED_AT),
+      tokenRefreshDays: TOKEN_REFRESH_DAYS,
       updateAvailable: currentSource === 'fallback' ? false : compareVersions(current, hit.tag) < 0,
       releaseUrl: hit.releaseUrl, checkedAt: new Date().toISOString(), error: null,
     }
@@ -1361,6 +1365,48 @@ export async function registerPrefixRouteWithRetry(webServer, route, { attempts 
 // skills/xiaoyu-qu-ai-wei/scripts/aiwei_scan.py 同指标同权重的 JS 实现，
 // 不 spawn 解释器——任何设备（哪怕没装 python3）都能在面板里看到分数。
 // 结果按「文件 + mtime + size」缓存，正文一改缓存自然失效。
+/**
+ * 给「重计算」类路由算指纹：章节目录 + 账本 + 章纲 + 角色卡目录。
+ * 用目录 mtime 代表「增删了文件」，用子文件 mtime:size 代表「改了内容」——
+ * 任一变化指纹就变，缓存自动失效；跨设备（Android/桌面/容器）都只是 stat，
+ * 没有平台相关逻辑。
+ */
+function novelFingerprint(novelDir) {
+  const dir = path.resolve(novelDir)
+  const paths = [
+    path.join(dir, 'project.yml'),
+    path.join(dir, 'style.md'),
+    path.join(dir, 'index.yml'),
+    path.join(dir, 'volumes.yml'),
+    path.join(dir, 'relations.yml'),
+    path.join(dir, 'foreshadows.yml'),
+    path.join(dir, 'timeline.yml'),
+    path.join(dir, 'memories.yml'),
+    path.join(dir, 'clue-board.yml'),
+    path.join(dir, 'decisions.yml'),
+  ]
+  for (const sub of ['chapters', 'outlines', 'characters', 'world', 'science', 'research']) {
+    const abs = path.join(dir, sub)
+    paths.push(abs)
+    try {
+      for (const name of readdirSync(abs)) paths.push(path.join(abs, name))
+    } catch { /* 目录不存在：只把目录本身编进指纹 */ }
+  }
+  // 一次刷新里 audit/check 会连着问，指纹按目录短 TTL 复用（写路径会显式清）。
+  return fingerprintOfCached(dir, paths)
+}
+
+/**
+ * 写盘后的统一失效：快照缓存 + 重计算结果缓存一起清。
+ * 为什么不能只靠指纹：Android /sdcard 与部分容器文件系统的 mtime 只有秒级
+ * 精度，同一秒内连写两次且大小不变时指纹不变，会读到上一版结果。写路径
+ * 显式清一遍最稳（清空是 O(1)，代价可以忽略）。
+ */
+function invalidateAllCaches() {
+  invalidateSnapshotCache()
+  clearResultCache()
+}
+
 const GATE_CACHE_LIMIT = 300
 const gateCache = new Map()
 
@@ -1675,20 +1721,13 @@ export async function registerCreatorRoutes(ctx) {
         }
 
         if (route === 'self-update' && req.method === 'POST') {
-          // 面板内一键升级：形态/profile 预检 + 版本预检后，在 profile 目录里
-          // 直跑 `pnpm add dsh-xiaoyu-novel@<精确版本>`（pnpm 按候选链解析，细节与
-          // 安全边界见 lib/self-update.mjs）。可预期的失败（dev-link /
-          // unsupported-layout / profile-missing / no-target / pnpm-missing /
-          // 超时 / 退出码非零 nonzero）统一 HTTP 200 + ok:false，kind 给客户端
-          // 分流、message 经 sanitizeWithRoots 脱敏后透出；成功带 restartRequired:
-          // true——装完的只是磁盘上的新包，运行中的进程仍是旧代码，必须重启
-          // DeepSeek 才生效，客户端文案必须照实转述。本地已不落后线上时短路
-          // kind: 'up-to-date'（不装 profile）。两个成功路径都顺带全局 CLI：
-          // globalCli 原样透传（json 序列化不截字段；形状与失败不拖累整体的
-          // 语义见 lib/self-update.mjs 文件头注「全局 CLI 顺带更新」节）。
-          // 私有库优先（0.18.0）：插件目录常常是符号链接到开发副本，pnpm 那套
-          // 会直接判 dev-link 拒绝——私有发行本来也不在 npm 上。配了仓库就走
-          // 「下载 release 源码包 → 校验 → 备份 → 覆盖」这条路。
+          // 面板内一键升级（0.18.0 起只走私有库）：从配好的 GitHub 仓库下载该
+          // tag 的源码包 → 校验包名与版本 → 整目录备份 → 覆盖 → 提示重启。
+          // 可预期失败统一 HTTP 200 + ok:false（kind 给客户端分流，error 经
+          // sanitizeWithRoots 脱敏）；成功带 restartRequired: true——磁盘换新了，
+          // 运行中的进程还是旧代码，必须重启 DeepSeek 才生效。
+          // pnpm 那套（lib/self-update.mjs）0.22.0 已删：私有发行不在 npm 上，
+          // 它唯一能给出的结果是「未找到包」。
           let pkgSelf = null
           try { pkgSelf = JSON.parse(readFileSync(path.join(PLUGIN_ROOT, 'package.json'), 'utf8')) } catch { /* 读不到就走原逻辑 */ }
           const ghRepo = resolveGithubRepo(pkgSelf, process.env)
@@ -1733,17 +1772,12 @@ export async function registerCreatorRoutes(ctx) {
             }
             return
           }
-          const r = await selfUpdate({ logger: ctx.logger })
-          if (r.ok && r.kind === 'up-to-date') {
-            json(res, 200, { ok: true, kind: 'up-to-date', from: r.from ?? null, globalCli: r.globalCli ?? null })
-          } else if (r.ok) {
-            json(res, 200, {
-              ok: true, kind: r.kind, from: r.from ?? null, to: r.to ?? null,
-              restartRequired: true, globalCli: r.globalCli ?? null,
-            })
-          } else {
-            json(res, 200, { ok: false, kind: r.kind, error: sanitizeWithRoots(r.message ?? r.kind) })
-          }
+          // 没配 GitHub 仓库时不再退回 pnpm 那套（0.22.0）：本插件是私有发行，
+          // npm 上没有它，pnpm 只会给出「未找到包」这种没用的报错。直接说清楚。
+          json(res, 200, {
+            ok: false, kind: 'no-target',
+            error: '没配更新源：在 package.json 的 dsh.githubRepo 写 owner/repo（或设环境变量 XIAOYU_GITHUB_REPO），或手动从 Release 装新版',
+          })
           return
         }
 
@@ -1813,7 +1847,13 @@ export async function registerCreatorRoutes(ctx) {
           // scope=lite（0.15.0）：首屏精简体——只回书稿骨架，账本正文/世界/考据/
           // 章纲留空（payload.partial 列出缺块），客户端随后补一次全量。冷启动
           // 首屏从 ~1.26s 降到 ~0.8s、传输从 386KB 降到 87KB。
-          const snapshot = parseStateSnapshot(novelDir, { lite: url.searchParams.get('scope') === 'lite' })
+          // blocks=xxx（0.22.0）：按需只解析点名的块。首屏只要骨架，
+          // memories/research/clues/timeline 这些大头等切到对应 tab 再拉，
+          // 传输从 448KB 降到 105KB（省 77%）。缺省仍全量，老客户端不受影响。
+          const snapshot = parseStateSnapshot(novelDir, {
+            lite: url.searchParams.get('scope') === 'lite',
+            blocks: url.searchParams.get('blocks') || undefined,
+          })
           // 快照可到百 KB（记忆/时间线随书写长），gzip 后约 1/6；fetch 透明解压
           const text = JSON.stringify(snapshot)
           if (String(req.headers['accept-encoding'] || '').includes('gzip')) {
@@ -1963,7 +2003,8 @@ export async function registerCreatorRoutes(ctx) {
         if (route === 'audit' && req.method === 'GET') {
           // 全书体检：跨章重复 / 人物出场 / 章纲兑现 / 节奏 / 章末钩子。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
-          const audit = auditProject(novelDir)
+          // 按指纹缓存：热调用 466ms → 几毫秒（文件没动结果必然一样）。
+          const { value: audit } = cachedResult('audit', novelFingerprint(novelDir), () => auditProject(novelDir))
           recordProgress(novelDir, audit.totals.words)
           json(res, 200, audit)
           return
@@ -2244,12 +2285,12 @@ function styleRegisterLabel(register) {
             const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
             if (body.undo === true) {
               const undone = undoLedgerClean(novelDir)
-              invalidateSnapshotCache()
+              invalidateAllCaches()
               json(res, 200, undone)
               return
             }
             const out = applyLedgerClean(novelDir)
-            invalidateSnapshotCache()
+            invalidateAllCaches()
             json(res, 200, {
               ok: true,
               changed: out.changed,
@@ -2285,15 +2326,20 @@ function styleRegisterLabel(register) {
           // （§2 出参就是 { ok, problems }），客户端自己按 level 计数。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
           // 合并格式硬校验（键名/键序/围栏/文件名规范/索引一致性），与 CLI 同源。
-          const format = checkFormat(novelDir)
-          const seen = new Set()
-          const problems = []
-          for (const p of checkProject(novelDir).problems.concat(format.problems)) {
-            const key = p.level + '|' + p.file + '|' + p.message
-            if (seen.has(key)) continue
-            seen.add(key)
-            problems.push(p)
-          }
+          // 按指纹缓存：check 228ms + format 74ms，文件没动就不必重算。
+          const fp = novelFingerprint(novelDir)
+          const { value: problems } = cachedResult('check', fp, () => {
+            const format = checkFormat(novelDir)
+            const seen = new Set()
+            const list = []
+            for (const p of checkProject(novelDir).problems.concat(format.problems)) {
+              const key = p.level + '|' + p.file + '|' + p.message
+              if (seen.has(key)) continue
+              seen.add(key)
+              list.push(p)
+            }
+            return list
+          })
           json(res, 200, { ok: true, problems })
           return
         }
@@ -2603,7 +2649,7 @@ function styleRegisterLabel(register) {
             const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
             const before = String(body.before || '').trim()
             const out = archiveApply(novelDir, before)
-            invalidateSnapshotCache()
+            invalidateAllCaches()
             json(res, 200, out)
           } catch (error) {
             json(res, 400, { ok: false, error: sanitizeWithRoots(String(error && error.message ? error.message : error)) })
@@ -2630,7 +2676,7 @@ function styleRegisterLabel(register) {
           const body = await readBody(req, res)
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
           const result = initRepo(novelDir)
-          if (result.ok) invalidateSnapshotCache()
+          if (result.ok) invalidateAllCaches()
           json(res, result.ok ? 200 : 500, result)
           return
         }
@@ -2667,7 +2713,7 @@ function styleRegisterLabel(register) {
               if (m) snapshotChapter(novelDir, m[1], text)
             },
           })
-          if (result.ok) invalidateSnapshotCache()
+          if (result.ok) invalidateAllCaches()
           json(res, result.ok ? 200 : 400, result)
           return
         }
@@ -2693,7 +2739,7 @@ function styleRegisterLabel(register) {
           const body = await readBody(req, res)
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
           const result = applyRelationStarts(novelDir, body.patches)
-          if (result.ok && result.applied > 0) invalidateSnapshotCache()
+          if (result.ok && result.applied > 0) invalidateAllCaches()
           json(res, result.ok ? 200 : 422, result)
           return
         }
@@ -2703,7 +2749,7 @@ function styleRegisterLabel(register) {
           const body = await readBody(req, res)
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
           const result = appendOutlineNote(novelDir, body.file, body.note)
-          if (result.ok) invalidateSnapshotCache()
+          if (result.ok) invalidateAllCaches()
           json(res, 200, result)
           return
         }
