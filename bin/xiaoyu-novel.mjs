@@ -30,6 +30,7 @@ import { buildHandoff, renderHandoff } from '../lib/handoff-core.mjs'
 import { archiveApply, archivePlan } from '../lib/slim-core.mjs'
 import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from '../lib/ledger-clean.mjs'
 import { applyGithubUpdate, fetchLatestGithubVersion, resolveGithubRepo } from '../lib/github-update.mjs'
+import { resolveGithubToken } from '../lib/github-token.mjs'
 import { compareVersions, currentVersion } from '../lib/version.mjs'
 import { analyzeChapter } from '../lib/gate-core.mjs'
 import { auditMarkdown, auditProject, stripFrontmatter } from '../lib/audit-core.mjs'
@@ -1160,7 +1161,7 @@ async function cmdUpdate(rest) {
   const repo = resolveGithubRepo(pkg, process.env)
   if (repo === '') fail('没配 GitHub 仓库：在 package.json 的 dsh.githubRepo 或 repository.url 写 owner/repo（或设 XIAOYU_GITHUB_REPO）')
   const { version: current } = await currentVersion()
-  const hit = await fetchLatestGithubVersion({ repo, token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '' })
+  const hit = await fetchLatestGithubVersion({ repo, token: resolveGithubToken(process.env).token })
   if (!hit.ok) fail(String(hit.error || '查不到最新版本'))
   const behind = compareVersions(current, hit.tag) < 0
   if (asJson) {
@@ -1181,7 +1182,7 @@ async function cmdUpdate(rest) {
     tag: hit.tag,
     pluginRoot,
     backupRoot: path.join(path.dirname(pluginRoot), '.backup'),
-    token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '',
+    token: resolveGithubToken(process.env).token,
   })
   if (!out.ok) fail('更新失败（' + out.kind + '）：' + String(out.error || '未知错误'))
   console.log('已更新 ' + out.from + ' → ' + out.to + '（' + out.tag + '）')

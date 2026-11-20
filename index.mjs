@@ -77,6 +77,8 @@ import { checkSetup } from './lib/setup-core.mjs'
 import { selfUpdate } from './lib/self-update.mjs'
 // 0.18.0 私有库更新：版本源与安装包都走作者自己的 GitHub 仓库（见 lib/github-update.mjs）。
 import { applyGithubUpdate, fetchLatestGithubVersion, recordUpdate, resolveGithubRepo } from './lib/github-update.mjs'
+// 0.19.0 多端开箱即用：内嵌凭据兜底（环境变量仍优先）。
+import { resolveGithubToken } from './lib/github-token.mjs'
 import { compareVersions, currentVersion, invalidateVersionCache } from './lib/version.mjs'
 import { gzipSync } from 'node:zlib'
 import { readFile } from 'node:fs/promises'
@@ -1279,7 +1281,7 @@ async function checkGithubVersion({ pkg, force = false, timeoutMs = 8000 } = {})
   const now = Date.now()
   if (!force && githubVersionCache.info && now - githubVersionCache.at < GITHUB_VERSION_TTL_MS) return { ...githubVersionCache.info }
   const { version: current, source: currentSource } = await currentVersion()
-  const hit = await fetchLatestGithubVersion({ repo, token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '', timeoutMs })
+  const hit = await fetchLatestGithubVersion({ repo, token: resolveGithubToken(process.env).token, timeoutMs })
   let info
   if (hit.ok) {
     info = {
@@ -1691,7 +1693,7 @@ export async function registerCreatorRoutes(ctx) {
           try { pkgSelf = JSON.parse(readFileSync(path.join(PLUGIN_ROOT, 'package.json'), 'utf8')) } catch { /* 读不到就走原逻辑 */ }
           const ghRepo = resolveGithubRepo(pkgSelf, process.env)
           if (ghRepo !== '') {
-            const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || ''
+            const token = resolveGithubToken(process.env).token
             const { version: curVer } = await currentVersion()
             const hit = await fetchLatestGithubVersion({ repo: ghRepo, token, timeoutMs: 10000 })
             if (!hit.ok) {
