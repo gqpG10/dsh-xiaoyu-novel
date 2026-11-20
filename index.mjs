@@ -1281,7 +1281,7 @@ async function checkGithubVersion({ pkg, force = false, timeoutMs = 8000 } = {})
   const now = Date.now()
   if (!force && githubVersionCache.info && now - githubVersionCache.at < GITHUB_VERSION_TTL_MS) return { ...githubVersionCache.info }
   const { version: current, source: currentSource } = await currentVersion()
-  const hit = await fetchLatestGithubVersion({ repo, token: resolveGithubToken(process.env).token, timeoutMs })
+  const hit = await fetchLatestGithubVersion({ repo, token: resolveGithubToken(process.env).token, timeoutMs, pinnedRepo: repo })
   let info
   if (hit.ok) {
     info = {
@@ -1695,7 +1695,7 @@ export async function registerCreatorRoutes(ctx) {
           if (ghRepo !== '') {
             const token = resolveGithubToken(process.env).token
             const { version: curVer } = await currentVersion()
-            const hit = await fetchLatestGithubVersion({ repo: ghRepo, token, timeoutMs: 10000 })
+            const hit = await fetchLatestGithubVersion({ repo: ghRepo, token, timeoutMs: 10000, pinnedRepo: ghRepo })
             if (!hit.ok) {
               json(res, 200, { ok: false, kind: 'no-target', error: sanitizeWithRoots(String(hit.error || '查不到最新版本')) })
               return
@@ -1710,6 +1710,7 @@ export async function registerCreatorRoutes(ctx) {
               pluginRoot: PLUGIN_ROOT,
               backupRoot: path.join(path.dirname(PLUGIN_ROOT), '.backup'),
               token,
+              pinnedRepo: ghRepo,
             })
             if (out.ok) {
               await recordUpdate(path.join(path.dirname(PLUGIN_ROOT), '.backup'), {

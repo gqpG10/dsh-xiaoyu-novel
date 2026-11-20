@@ -31,6 +31,7 @@ import { archiveApply, archivePlan } from '../lib/slim-core.mjs'
 import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from '../lib/ledger-clean.mjs'
 import { applyGithubUpdate, fetchLatestGithubVersion, resolveGithubRepo } from '../lib/github-update.mjs'
 import { resolveGithubToken } from '../lib/github-token.mjs'
+import { describeInspection, inspectToken, writeEmbeddedToken } from '../lib/token-tools.mjs'
 import { compareVersions, currentVersion } from '../lib/version.mjs'
 import { analyzeChapter } from '../lib/gate-core.mjs'
 import { auditMarkdown, auditProject, stripFrontmatter } from '../lib/audit-core.mjs'
@@ -1056,6 +1057,8 @@ const HELP_TEXT = `小鱼（xiaoyu）—— 网文创作项目 CLI
                          撤销最近一次自动修（逐句改/整章改都会先留快照，每章保留 10 份）
   xiaoyu-novel progress [dir]  最近 30 天写作进度（每日总字数；今日新增对比上一记录日）
   xiaoyu-novel setup [dir]     开书九件套检查：概览/章节/角色/伏笔/关系/时间线/设定/风格/索引逐项 ✓/缺（缺项退出码 1）
+  xiaoyu-novel token [check]                   体检内嵌凭据：能读什么、能不能写
+  xiaoyu-novel token set <PAT> [--force]       更换内嵌凭据（先体检，最小权限才推荐）
   xiaoyu-novel update [--check] [--apply] [--json]
                          从作者 GitHub 私有库查最新版本；--apply 下载该 tag 源码包、
                          校验包名与版本、整目录备份后覆盖插件目录（装完重启 DSH）
@@ -1161,7 +1164,7 @@ async function cmdUpdate(rest) {
   const repo = resolveGithubRepo(pkg, process.env)
   if (repo === '') fail('没配 GitHub 仓库：在 package.json 的 dsh.githubRepo 或 repository.url 写 owner/repo（或设 XIAOYU_GITHUB_REPO）')
   const { version: current } = await currentVersion()
-  const hit = await fetchLatestGithubVersion({ repo, token: resolveGithubToken(process.env).token })
+  const hit = await fetchLatestGithubVersion({ repo, token: resolveGithubToken(process.env).token, pinnedRepo: repo })
   if (!hit.ok) fail(String(hit.error || '查不到最新版本'))
   const behind = compareVersions(current, hit.tag) < 0
   if (asJson) {
@@ -1183,11 +1186,60 @@ async function cmdUpdate(rest) {
     pluginRoot,
     backupRoot: path.join(path.dirname(pluginRoot), '.backup'),
     token: resolveGithubToken(process.env).token,
+    pinnedRepo: repo,
   })
   if (!out.ok) fail('更新失败（' + out.kind + '）：' + String(out.error || '未知错误'))
   console.log('已更新 ' + out.from + ' → ' + out.to + '（' + out.tag + '）')
   console.log('备份：' + out.backupDir)
   console.log('重启 DeepSeek Harness 后生效。')
+}
+
+/**
+ * 内嵌凭据的体检与更换（0.20.0）。
+ *   xiaoyu-novel token check                     体检当前凭据（能读什么/能写什么）
+ *   xiaoyu-novel token set <PAT>                 换成新凭据（先体检后写入）
+ *   xiaoyu-novel token set <PAT> --force         跳过体检（离线/网络不通时）
+ */
+async function cmdToken(rest) {
+  const sub = rest[0]
+  const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+  const pkg = JSON.parse(readFileSync(path.join(pluginRoot, 'package.json'), 'utf8'))
+  const repo = resolveGithubRepo(pkg, process.env)
+  if (repo === '') fail('没配 GitHub 仓库（package.json 的 dsh.githubRepo）')
+  const modulePath = path.join(pluginRoot, 'lib', 'github-token.mjs')
+  if (sub === 'check' || sub === undefined) {
+    const { token, source } = resolveGithubToken(process.env)
+    if (token === '') fail('当前没有任何可用凭据：设 GITHUB_TOKEN，或先 token set <PAT>')
+    console.log('凭据来源：' + source + '（' + (source === 'env' ? '环境变量' : '内嵌 lib/github-token.mjs') + '）')
+    console.log('目标仓库：' + repo)
+    console.log('')
+    const result = await inspectToken({ token, repo })
+    console.log(describeInspection(result))
+    return
+  }
+  if (sub === 'set') {
+    const token = String(rest[1] || '').trim()
+    const force = rest.indexOf('--force') !== -1
+    if (token === '') fail('用法：xiaoyu-novel token set <PAT>（在 GitHub → Settings → Developer settings → Fine-grained tokens 生成）')
+    if (!force) {
+      console.log('先体检这个新凭据……')
+      const result = await inspectToken({ token, repo })
+      console.log(describeInspection(result))
+      if (!result.ok) fail('体检没通过，没写入。（确认网络后可加 --force 跳过体检）')
+      if (result.canWriteTarget || result.canReadOther) {
+        console.log('')
+        console.log('注意：这个凭据权限比目标大（可写或能读别的库），仍按最小权限设计建议换一个。')
+        console.log('继续写入……（Ctrl+C 可在 5 秒内取消）')
+        await new Promise((resolve) => setTimeout(resolve, 5000))
+      }
+    }
+    const written = await writeEmbeddedToken(modulePath, token)
+    if (!written.ok) fail('写入失败：' + written.error)
+    console.log('已写入 ' + written.path + '（' + written.parts + ' 块，原文件存为 ' + written.backup + '）')
+    console.log('重启 DSH 后生效。')
+    return
+  }
+  fail('未知子命令「' + sub + '」——token 只认 check / set <PAT> [--force]')
 }
 
 function cmdClean(rest) {
@@ -1425,6 +1477,7 @@ function main(argv) {
   if (command === 'slim') return cmdSlim(rest)
   if (command === 'clean' || command === 'ledger-clean') return cmdClean(rest)
   if (command === 'update' || command === 'upgrade') return cmdUpdate(rest)
+  if (command === 'token') return cmdToken(rest)
   if (command === undefined) {
     console.error('xiaoyu: 缺少子命令（init / stats / index / export / brief / wc / check / gate / report，--help 看用法）')
     process.exit(1)
