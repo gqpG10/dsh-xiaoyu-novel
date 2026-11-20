@@ -91,3 +91,29 @@ test('移除后清掉记忆的选择（否则下次打开指向已摘除的目�
   assert.ok(body.includes('setSelWs("")'), '要清当前选中')
   assert.ok(body.includes('loadWorkspaces()'), '要刷新列表')
 })
+test('检查更新要有就地可见的结论（不能只靠会消失的 toast）', () => {
+  const client = read('lib/client.js')
+  // 三态：有新版 / 已最新 / 失败，都要落到按钮旁的状态位
+  assert.ok(client.includes('var _vn = useState(null), verNote'), '缺状态位 state')
+  for (const kind of ['"new"', '"ok"', '"err"']) {
+    assert.ok(client.includes('kind: ' + kind), '缺 ' + kind + ' 结果的落点')
+  }
+  assert.ok(client.includes('className: "myt-verNote"'), '状态位要渲染出来')
+  for (const key of ['verNote.new', 'verNote.upToDate', 'verNote.fail']) {
+    assert.equal(client.split('"' + key + '":').length - 1, 2, key + ' 中英各一份')
+  }
+  // 检测中必须禁用按钮并换文案（防连点、也告诉用户「在跑」）
+  assert.ok(client.includes('disabled: verChecking'), '检测中要禁用')
+  assert.ok(client.includes('header.checkingUpdate'), '检测中要换文案')
+  // 检测失败也要有可见反馈（不能静默）
+  assert.ok(client.includes('verNote.fail'), '失败要有可见反馈')
+})
+
+test('状态位样式：三色可辨、超长省略', () => {
+  const css = read('lib/base.css')
+  assert.ok(css.includes('.myt-verNote'), '缺样式')
+  for (const kind of ['ok', 'new', 'err']) {
+    assert.ok(css.includes('.myt-verNote[data-kind="' + kind + '"]'), '缺 ' + kind + ' 配色')
+  }
+  assert.ok(/\.myt-verNote \{[^}]*text-overflow: ellipsis/.test(css), '超长要省略')
+})

@@ -1207,9 +1207,31 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
 /* 阅读页复制/编辑按钮：只留语义类名，尺寸走 .myt-readerBar 紧凑档 */
 
 /* ── toast（铺满实例的悬浮层，host 不挡点击）──────────────────────────── */
+/* 检测更新结果位（0.23.0）：toast 会消失，这一行留在按钮旁 */
+.myt-verNote {
+  display: inline-block;
+  max-width: 22em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+}
+.myt-verNote[data-kind="ok"] { color: var(--dsw-alias-state-success-primary); }
+.myt-verNote[data-kind="new"] { color: var(--dsw-alias-state-warn-primary); }
+.myt-verNote[data-kind="err"] { color: var(--dsw-alias-state-error-primary); }
+
 .myt-toastHost {
+  /* 定位兜底（0.23.0）：实例根若高度塌陷（首帧 / 侧栏切形态），absolute inset:0
+     会落进 0 高度区域，toast 等于看不见——用户以为「点了没反应」。
+     用 min-height + bottom 双保险，保证至少 96px 的可见区在视口底部。 */
   position: absolute;
   inset: 0;
+  min-height: 96px;
   z-index: 90;
   display: flex;
   flex-direction: column;
