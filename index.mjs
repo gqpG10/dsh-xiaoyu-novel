@@ -2069,10 +2069,45 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'workspace-remove' && req.method === 'POST') {
+          // 移除工作区登记（0.23.0）：只从注册表摘掉，绝不动磁盘文件。
+          // 为什么需要：接入测试过、或目录被作者删掉的死条目会一直留在选择器里，
+          // 点进去是空面板，看着像坏了。
+          const body = await readBody(req, res)
+          const target = typeof body.path === 'string' ? body.path.trim().replace(/\/+$/, '') : ''
+          if (target === '' || !path.isAbsolute(target)) {
+            json(res, 400, { ok: false, error: '需要一个绝对路径' })
+            return
+          }
+          const registry = ctx.workspaceRegistry
+          if (!registry) {
+            json(res, 503, { ok: false, error: '工作区服务不可用' })
+            return
+          }
+          // 宿主的删除接口名各版本不一：remove / delete / unregister 全试一遍。
+          const fn = [registry.remove, registry.delete, registry.unregister].find((f) => typeof f === 'function')
+          if (fn === undefined) {
+            json(res, 503, { ok: false, error: '当前宿主不支持移除工作区（只能接入，不能摘除）' })
+            return
+          }
+          try {
+            await fn.call(registry, target)
+          } catch (error) {
+            json(res, 400, { ok: false, error: sanitizeWithRoots(String(error && error.message ? error.message : error)) })
+            return
+          }
+          invalidateAllCaches()
+          json(res, 200, { ok: true, path: target })
+          return
+        }
+
         if (route === 'workspace-add' && req.method === 'POST') {
           // 接入已有项目：把磁盘上的 novel/ 目录登记成工作区。只登记，不动文件。
           const body = await readBody(req, res)
-          const target = typeof body.path === 'string' ? body.path.trim() : ''
+          let target = typeof body.path === 'string' ? body.path.trim() : ''
+          // 容错（0.23.0）：用户常把书目录本身（…/novel）贴进来，或带尾部斜杠。
+          // 这里统一退到「含 novel/project.yml 的那一级」，别让一撇斜杠毁掉一次接入。
+          target = target.replace(/\u3000/g, ' ').trim().replace(/\/+$/, '')
           if (target === '' || !path.isAbsolute(target)) {
             json(res, 400, { ok: false, error: '需要一个绝对路径' })
             return
@@ -2090,8 +2125,16 @@ export async function registerCreatorRoutes(ctx) {
             json(res, 400, { ok: false, error: '不是目录' })
             return
           }
+          // 贴的是 …/novel 就退回父目录；贴的是工作区根就直接用。
+          if (!existsSync(path.join(target, 'novel', 'project.yml')) && existsSync(path.join(target, 'project.yml')) && path.basename(target) === 'novel') {
+            target = path.dirname(target)
+          }
           if (!existsSync(path.join(target, 'novel', 'project.yml'))) {
-            json(res, 422, { ok: false, error: '该目录下没有 novel/project.yml' })
+            // 报错里带上人话的两种正确写法，比「没有 project.yml」有用得多
+            json(res, 422, {
+              ok: false,
+              error: '该目录下没有 novel/project.yml。请填工作区根目录（如 /sdcard/小说工作台），它下面要有 novel/project.yml',
+            })
             return
           }
           const registry = ctx.workspaceRegistry
