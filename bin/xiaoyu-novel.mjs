@@ -29,6 +29,8 @@ import { buildSelectionExport } from '../lib/novel-export.mjs'
 import { buildHandoff, renderHandoff } from '../lib/handoff-core.mjs'
 import { archiveApply, archivePlan } from '../lib/slim-core.mjs'
 import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from '../lib/ledger-clean.mjs'
+import { applyGithubUpdate, fetchLatestGithubVersion, resolveGithubRepo } from '../lib/github-update.mjs'
+import { compareVersions, currentVersion } from '../lib/version.mjs'
 import { analyzeChapter } from '../lib/gate-core.mjs'
 import { auditMarkdown, auditProject, stripFrontmatter } from '../lib/audit-core.mjs'
 import { checkFormat } from '../lib/format-core.mjs'
@@ -1053,6 +1055,9 @@ const HELP_TEXT = `小鱼（xiaoyu）—— 网文创作项目 CLI
                          撤销最近一次自动修（逐句改/整章改都会先留快照，每章保留 10 份）
   xiaoyu-novel progress [dir]  最近 30 天写作进度（每日总字数；今日新增对比上一记录日）
   xiaoyu-novel setup [dir]     开书九件套检查：概览/章节/角色/伏笔/关系/时间线/设定/风格/索引逐项 ✓/缺（缺项退出码 1）
+  xiaoyu-novel update [--check] [--apply] [--json]
+                         从作者 GitHub 私有库查最新版本；--apply 下载该 tag 源码包、
+                         校验包名与版本、整目录备份后覆盖插件目录（装完重启 DSH）
   xiaoyu-novel clean [dir] [--apply] [--undo] [--json]
                          清账本：超长条目压成结论（明细移到 archive/ledger-details/）、
                          大账本按章归档到 archive/、已写【推进章】的超期伏笔升 progressing、
@@ -1134,6 +1139,54 @@ export function formatCleanPlan(plan) {
   if (plan.indexStale === true) lines.push('  index.yml  与 chapters/ 条数不一致 → 重建索引')
   if (plan.indexRebuilt === true) lines.push('  index.yml  已按 chapters/ 重建')
   return lines.join('\n')
+}
+
+/**
+ * 更新自己（0.18.0）：走作者自己的 GitHub 私有库。默认只查（--check 同义），
+ * --apply 才真装。装完要重启 DSH——运行中的进程仍是旧代码。
+ */
+async function cmdUpdate(rest) {
+  let apply = false
+  let asJson = false
+  for (const arg of rest) {
+    if (arg === '--apply' || arg === '-y') { apply = true; continue }
+    if (arg === '--check' || arg === '--dry-run') { apply = false; continue }
+    if (arg === '--json') { asJson = true; continue }
+    if (arg.startsWith('-')) fail('未知选项「' + arg + '」——update 只认 --check / --apply / --json')
+    fail('多余的位置参数「' + arg + '」——update 不接受目录参数')
+  }
+  const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+  const pkg = JSON.parse(readFileSync(path.join(pluginRoot, 'package.json'), 'utf8'))
+  const repo = resolveGithubRepo(pkg, process.env)
+  if (repo === '') fail('没配 GitHub 仓库：在 package.json 的 dsh.githubRepo 或 repository.url 写 owner/repo（或设 XIAOYU_GITHUB_REPO）')
+  const { version: current } = await currentVersion()
+  const hit = await fetchLatestGithubVersion({ repo, token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '' })
+  if (!hit.ok) fail(String(hit.error || '查不到最新版本'))
+  const behind = compareVersions(current, hit.tag) < 0
+  if (asJson) {
+    console.log(JSON.stringify({ current, latest: hit.tag, repo, updateAvailable: behind, source: hit.source }, null, 2))
+    if (!apply) return
+  } else {
+    console.log('仓库：' + repo + '（版本源 ' + hit.source + '）')
+    console.log('本地：' + current + '　线上：' + hit.tag)
+    if (!behind) { console.log('已是最新。'); return }
+  }
+  if (!apply) {
+    console.log('')
+    console.log('有新版可装：xiaoyu-novel update --apply（装完重启 DSH 生效）')
+    return
+  }
+  const out = await applyGithubUpdate({
+    repo,
+    tag: hit.tag,
+    pluginRoot,
+    backupRoot: path.join(path.dirname(pluginRoot), '.backup'),
+    token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '',
+  })
+  if (!out.ok) fail('更新失败（' + out.kind + '）：' + String(out.error || '未知错误'))
+  console.log('已更新 ' + out.from + ' → ' + out.to + '（' + out.tag + '）')
+  console.log('备份：' + out.backupDir)
+  console.log('重启 DeepSeek Harness 后生效。')
 }
 
 function cmdClean(rest) {
@@ -1370,6 +1423,7 @@ function main(argv) {
   if (command === 'find') return cmdFind(rest)
   if (command === 'slim') return cmdSlim(rest)
   if (command === 'clean' || command === 'ledger-clean') return cmdClean(rest)
+  if (command === 'update' || command === 'upgrade') return cmdUpdate(rest)
   if (command === undefined) {
     console.error('xiaoyu: 缺少子命令（init / stats / index / export / brief / wc / check / gate / report，--help 看用法）')
     process.exit(1)
