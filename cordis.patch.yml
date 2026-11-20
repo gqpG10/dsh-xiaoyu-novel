@@ -1,0 +1,6 @@
+# dsh-xiaoyu-novel bundle patch — `dsh plugin --profile <name> add dsh-xiaoyu-novel` 时由
+# reconcilePlugins 并入该 profile 的 dsh.profile.bundles，boot 时并入补丁树。
+# name: dsh-xiaoyu-novel 指向 pnpm 装进 profile 的本包（main: index.mjs）。
+- insert:
+    - id: xiaoyu-novel-installer
+      name: dsh-xiaoyu-novel
