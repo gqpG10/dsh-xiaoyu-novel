@@ -235,9 +235,13 @@ test('钉库守卫按解出来的凭据判断：入参 token 为空也不能绕�
   assert.match(dl.error, /只授权/)
 })
 
-test('体检不用写探针：只读请求就能判断凭据大小', () => {
+test('体检的写判据：必须用参数合法的建 ref 尝试，且成功自清', () => {
   const source = readFileSync(path.join(rootDir, 'lib/token-tools.mjs'), 'utf8')
-  assert.ok(!/method: 'PUT'/.test(source), '不得用 PUT 探针（体检不许有写副作用）')
-  assert.ok(!/method: 'POST'/.test(source), '不得用 POST 探针')
-  assert.ok(source.includes('permissions'), '要用 permissions 字段判断')
+  // 空 body 的 POST /git/refs 一律 422（先校验参数后校验权限），只读令牌会被误判成可写
+  assert.ok(!/git\/refs[\s\S]{0,200}body: '\{\}'/.test(source), '不许用空 body 探针（会误判）')
+  assert.ok(source.includes('headCommitSha'), '要先取 head sha 才能发合法写请求')
+  assert.ok(source.includes("method: 'DELETE'"), '探针建出来的 ref 必须立刻删掉')
+  assert.ok(source.includes('probeCleaned'), '要回报探针是否清理干净')
+  // permissions 字段只做展示，不能当判据（fine-grained 下它回的是账号权限）
+  assert.ok(source.includes('判据不靠它'), '注释要写清 permissions 不可作为判据')
 })
