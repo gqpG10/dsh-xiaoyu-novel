@@ -88,6 +88,38 @@ div:has(> div[data-slot="sidebar.footer.action"]) {
   background-color: #17181c;
   background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1));
 }
+/* ── 宿主主题变量缺席时的兜底调色板（3.1.3）──────────────────────────────
+   全部颜色都写成 var(--dsw-alias-*, …)。而 CSS 自定义属性的语义是：变量不存在
+   且没给后备值时，整条声明在「计算值阶段」退化成 unset —— background 变透明、
+   color 变继承、border 宽度归 0。若某个宿主的 WebView 里这套 --dsw-alias-*
+   根本没定义，面板就会变成「顶栏文字可见（少数写死 px 的地方）、其余全部透明
+   贴在同色背景上」，肉眼即一片黑。
+   注意不能直接在 .myt-view 上重定义 --dsw-alias-*：那会盖掉宿主主题（桌面亮色
+   也会被拖成深色）。所以由 client.js 探测：变量缺失才给容器加 data-myt-novars，
+   这一支才生效，宿主正常时零影响。 */
+[data-myt-novars] {
+  --dsw-alias-bg-base: #17181c;
+  --dsw-alias-bg-layer-1: #1d1f24;
+  --dsw-alias-bg-layer-2: #23262c;
+  --dsw-alias-bg-layer-3: #292d34;
+  --dsw-alias-label-primary: #e9eaec;
+  --dsw-alias-label-secondary: #b9bdc4;
+  --dsw-alias-label-tertiary: #8d939c;
+  --dsw-alias-label-primary-inverted: #17181c;
+  --dsw-alias-text-secondary: #b9bdc4;
+  --dsw-alias-border-l1: #34383f;
+  --dsw-alias-border-l2: #3d424a;
+  --dsw-alias-border-l3: #474d56;
+  --dsw-alias-border-l4: #535a64;
+  --dsw-alias-interactive-bg-hover: #2e333a;
+  --dsw-alias-state-business-primary: #4b8bf5;
+  --dsw-alias-button-primary-fill: #4b8bf5;
+  --dsw-alias-state-success-primary: #3fbf7f;
+  --dsw-alias-state-warn-primary: #e0a63c;
+  --dsw-alias-state-warning-primary: #e0a63c;
+  --dsw-alias-state-error-primary: #ef5b5b;
+  color: var(--dsw-alias-label-primary);
+}
 /* container-type 让实例根成为「按自身实宽」查询的容器：下面手机适配用
    @container 判定，overlay（中栏）与右栏 tab 两种形态共用一套规则，且桌面上把
    右栏拖窄同样命中——不靠窗口宽（窗口在桌面上永远是宽的）。 */
@@ -104,6 +136,11 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* 高度链兜底（3.1.3）：overlay 是 absolute，祖先若是「高度由内容决定」的
+     元素，height:100% 会解析成 auto——外壳本身还行（按内容长），但下面
+     .myt-body 的 flex:1 就分不到任何剩余空间，手机上表现成「顶栏和 tab 都在、
+     下面整块深色什么都没有」。min-height 让外壳至少占满一屏可视高。 */
+  min-height: 100%;
   min-width: 0;
 }
 .myt-header {
@@ -138,7 +175,11 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
    首元素带边框时不贴条；左右 24 与 tab 条 padding 对齐）*/
 .myt-body {
   flex: 1 1 auto;
-  min-height: 0;
+  /* 3.1.3：原来是 min-height:0（为让内层滚动器能收缩）。代价是只要祖先任一环
+     的高度解析失败，内容区就精确等于 0——顶栏/tab 条照常显示，下面一片深色，
+     正是手机实拍的样子。改成有底线的 min-height：宁可整页被撑高一点滚动，
+     也不允许内容区消失。 */
+  min-height: 240px;
   overflow-y: auto;
   padding: 16px 24px 32px;
 }
@@ -1361,7 +1402,7 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
 .myt-view { zoom: var(--myt-zoom, 1); }
 /* 实例门户根：overlay 形态下弹层/Toast 的 absolute 定位基准（MaskPortal portal
    进来）；右侧栏形态的根自带同类规则（见 .myt-viewTab）。 */
-.myt-viewRoot { position: relative; height: 100%; min-height: 0; }
+.myt-viewRoot { position: relative; height: 100%; min-height: 100%; }
 /* 右侧栏 tab 形态的实例根：铺满停靠格（不带 data-dsh-xiaoyu-novel-view 属性，
    不受 overlay 的 absolute+display:none 影响；.myt-view 出 zoom 与隔离）。 */
 .myt-viewTab { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; width: 100%; box-sizing: border-box; padding: 14px 16px; container-type: inline-size; }
@@ -1390,7 +1431,7 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
   .myt-viewTab .myt-outlineHead { flex-wrap: wrap; row-gap: 2px; } /* 章纲头：标题/字数/编辑/删除/箭头可换行不互挤 */
   .myt-viewTab .myt-dimGrid { grid-template-columns: 1fr; } /* 五维卡单列：160px 双列太挤 */
 }
-.myt-viewRoot { position: relative; height: 100%; min-height: 0; }
+.myt-viewRoot { position: relative; height: 100%; min-height: 100%; }
 .myt-settingsMask {
   position: absolute;
   inset: 0;

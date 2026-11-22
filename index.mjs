@@ -1691,6 +1691,54 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        // ── 客户端自检上报（3.1.3）：见 lib/client.js collectDiag 注释 ─────────
+        // 手机打不开控制台，面板「一片黑」时只能靠它自己把量到的几何与命中元素
+        // 发回来。写 <dshHome>/xiaoyu-diag.log（JSONL，按天截断到最近 200 行），
+        // 失败绝不回错——这是诊断通道，不是业务接口。POST 体走 readBody 限额。
+        if (route === 'client-diag') {
+          if (req.method === 'POST') {
+            let payload = null
+            try {
+              payload = await readBody(req, res)
+            } catch {
+              json(res, 400, { ok: false, error: 'bad body' })
+              return
+            }
+            try {
+              const home = resolveDshHome()
+              const logFile = path.join(home, 'xiaoyu-diag.log')
+              let line = ''
+              try {
+                line = JSON.stringify({ at: new Date().toISOString(), ...payload }).slice(0, 8000)
+              } catch {
+                line = JSON.stringify({ at: new Date().toISOString(), error: 'unserializable' })
+              }
+              let prev = ''
+              try {
+                const text = readFileSync(logFile, 'utf8')
+                const rows = text.split('\n').filter(Boolean)
+                prev = rows.slice(-199).join('\n') + (rows.length ? '\n' : '')
+              } catch { prev = '' }
+              writeFileSync(logFile, prev + line + '\n')
+              json(res, 200, { ok: true, file: logFile })
+            } catch (err) {
+              json(res, 200, { ok: false, error: sanitizeWithRoots(String(err?.message ?? err)) })
+            }
+            return
+          }
+          if (req.method === 'GET') {
+            // 作者/助手取现场：GET 回文本尾巴，便于本机直接看
+            try {
+              const logFile = path.join(resolveDshHome(), 'xiaoyu-diag.log')
+              const text = readFileSync(logFile, 'utf8')
+              json(res, 200, { ok: true, file: logFile, text: text.slice(-20000) })
+            } catch (err) {
+              json(res, 200, { ok: true, file: null, text: '', note: String(err?.message ?? err) })
+            }
+            return
+          }
+        }
+
         if (route === 'update-check' && req.method === 'GET') {
           // 版本源优先级（0.18.0）：配了 GitHub 仓库就只认它——私有库没有 npm
           // 通路，老逻辑跑两轮 registry 再报网络错，纯浪费时间。仓库来源见
