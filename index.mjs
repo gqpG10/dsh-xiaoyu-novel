@@ -133,6 +133,7 @@ import { buildSelectionExport } from './lib/novel-export.mjs'
 import { commitAll, gitAvailable, initRepo, listCommits, repoStatus, restoreFile, safeRel } from './lib/git-core.mjs'
 import { buildHandoff, renderHandoff } from './lib/handoff-core.mjs'
 import { applyRelationStarts, proposeRelationStarts } from './lib/relations-tools.mjs'
+import { applyRelationDedupe, planRelationDedupe } from './lib/relations-dedupe.mjs'
 
 // loadYamlLib / resolveDshHome 已迁至 lib/yaml-loader.mjs（创作台业务层与
 // 安装器共用，避免 panel-core 反向 import 主入口）；这里再导出保住本入口的
@@ -2781,6 +2782,41 @@ function styleRegisterLabel(register) {
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
           const result = applyRelationStarts(novelDir, body.patches)
           if (result.ok && result.applied > 0) invalidateAllCaches()
+          json(res, result.ok ? 200 : 422, result)
+          return
+        }
+
+        if (route === 'relations-dedupe' && req.method === 'GET') {
+          // 关系重复配对预演（3.1.0）：关系图上一对角色多条并行边的根因是账本重复
+          // （定稿维护每章 append 一条追记）。GET 只读，报出会合并哪几组。
+          const novelDir = resolveNovelRoot(url.searchParams.get("path"), ctx.workspaceRegistry)
+          const snapshot = parseStateSnapshot(novelDir, { blocks: ['relations'] })
+          const plan = planRelationDedupe({ relations: snapshot.relations ?? [] })
+          json(res, 200, {
+            ok: true,
+            before: plan.before,
+            after: plan.kept,
+            merged: plan.merged,
+            groups: plan.groups.filter((group) => group.changed).map((group) => ({
+              key: group.key,
+              count: group.count,
+              type: group.entry.type,
+              intensity: group.entry.intensity,
+              started: group.entry.started,
+              descriptionLength: String(group.entry.description ?? '').length,
+            })),
+          })
+          return
+        }
+
+        if (route === 'relations-dedupe' && req.method === 'POST') {
+          // 写回：描述按章拼接、intensity 取最大、started 最早、ended 最晚；
+          // 写前备份 relations.yml.bak-dedupe-<时间戳>。
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const snapshot = parseStateSnapshot(novelDir, { blocks: ['relations'] })
+          const result = applyRelationDedupe(novelDir, snapshot.relations ?? [])
+          if (result.ok && result.changed) invalidateAllCaches()
           json(res, result.ok ? 200 : 422, result)
           return
         }

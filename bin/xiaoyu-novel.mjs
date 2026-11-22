@@ -36,6 +36,7 @@ import { describeInspection, inspectToken, writeEmbeddedToken } from '../lib/tok
 import { compareVersions, currentVersion } from '../lib/version.mjs'
 import { exportPortable, importPortable, readPortable, restoreHint } from '../lib/portable.mjs'
 import { diagnose, renderDiagnosis } from '../lib/doctor.mjs'
+import { applyRelationDedupe, planRelationDedupe } from '../lib/relations-dedupe.mjs'
 import { analyzeChapter } from '../lib/gate-core.mjs'
 import { auditMarkdown, auditProject, stripFrontmatter } from '../lib/audit-core.mjs'
 import { checkFormat } from '../lib/format-core.mjs'
@@ -1072,6 +1073,10 @@ const HELP_TEXT = `小鱼（xiaoyu）—— 网文创作项目 CLI
                          还原搬迁包（目标已存在的文件先备份成 .bak-portable-<时间戳>）
   xiaoyu-novel portable show <包路径>
                          只看包里有什么、来自哪台机器、该怎么还原（不写盘）
+  xiaoyu-novel relations [dir] [--apply] [--all-types] [--json]
+                         关系账本去重：同一对角色同类型的多条关系合并成一条
+                         （描述按章拼接、intensity 取最大、started 取最早、ended 取最晚）。
+                         默认 dry-run；--apply 写前备份成 relations.yml.bak-dedupe-<时间戳>
   xiaoyu-novel doctor [--home <DSH_HOME>] [--profile web] [--json] [--fix]
                          换设备后「助手名字变了/面板打不开/新建对话不是小鱼」逐条查：
                          预设源文件、两层 patch 托管块、默认预设被谁抢、预设切换器是否被藏、
@@ -1646,6 +1651,62 @@ function patchEntryTextOf(text, id) {
   return lines.slice(start, end).join('\n')
 }
 
+
+/**
+ * relations：关系账本去重（3.1.0）。
+ *
+ * 现场症状：关系图上一对角色挂着五六条并行边。根因是账本重复——定稿维护每章
+ * 都 append 一条该章的追记，60 条里只有 35 对唯一配对。合并而非删除：描述按章
+ * 拼成一段（逐章追记一条不丢），intensity 取最大、started 最早、ended 最晚。
+ */
+function cmdRelations(rest) {
+  let dirArg = null
+  let apply = false
+  let asJson = false
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]
+    if (arg === '--apply') { apply = true; continue }
+    if (arg === '--json') { asJson = true; continue }
+    if (arg.startsWith('-')) fail('未知选项「' + arg + '」——relations 只认 --apply / --json')
+    if (dirArg === null) { dirArg = arg; continue }
+    fail('多余的位置参数「' + arg + '」——用法：xiaoyu-novel relations [dir] [--apply] [--json]')
+  }
+  const root = path.resolve(dirArg ?? 'novel')
+  const file = path.join(root, 'relations.yml')
+  if (!existsSync(file)) fail('找不到 ' + file + '——先确认目录是 novel/（里面应有 relations.yml）')
+  const relations = parseSimpleYaml(readTextOrNull(file)) ?? []
+  if (!Array.isArray(relations) || relations.length === 0) fail(file + ' 里没有可解析的关系条目')
+  const plan = planRelationDedupe({ relations })
+  if (asJson) {
+    console.log(JSON.stringify({ ok: true, before: plan.before, after: plan.kept, merged: plan.merged, dropped: plan.dropped, groups: plan.groups.filter((g) => g.changed).map((g) => ({ key: g.key, count: g.count, intensity: g.entry.intensity, started: g.entry.started, descriptionLength: String(g.entry.description ?? '').length })) }, null, 2))
+    return
+  }
+  const changed = plan.groups.filter((group) => group.changed)
+  if (changed.length === 0) {
+    console.log('关系账本没有重复配对（' + plan.before + ' 条，' + plan.kept + ' 对唯一关系）。')
+    return
+  }
+  console.log('关系账本：' + plan.before + ' 条 → 合并后 ' + plan.kept + ' 条（并掉 ' + (plan.before - plan.kept) + ' 条重复）')
+  console.log('')
+  for (const group of changed) {
+    const [a, b] = group.key.split('|')
+    console.log('  ' + a + ' ↔ ' + b + ' [' + group.entry.type + '] ×' + group.count +
+      ' → intensity ' + group.entry.intensity + ' / started ' + (group.entry.started || '空') +
+      ' / 描述 ' + String(group.entry.description ?? '').length + ' 字')
+  }
+  console.log('')
+  if (!apply) {
+    console.log('这是预演，没有写盘。加 --apply 执行（写前自动备份 relations.yml.bak-dedupe-<时间戳>）。')
+    return
+  }
+  const result = applyRelationDedupe(root, relations)
+  console.log('已写回 ' + file)
+  console.log('  合并 ' + result.merged + ' 组，' + result.before + ' 条 → ' + result.after + ' 条')
+  console.log('  备份：' + result.backup)
+  console.log('')
+  console.log('接着跑一次 xiaoyu-novel check ' + root + ' 确认账本仍然合法。')
+}
+
 function main(argv) {
   const [command, ...rest] = argv
   if (command === '--help' || command === '-h' || command === 'help') {
@@ -1679,6 +1740,7 @@ function main(argv) {
   if (command === 'token') return cmdToken(rest)
   if (command === 'portable') return cmdPortable(rest)
   if (command === 'doctor') return cmdDoctor(rest)
+  if (command === 'relations') return cmdRelations(rest)
   if (command === undefined) {
     console.error('xiaoyu: 缺少子命令（init / stats / index / export / brief / wc / check / gate / report，--help 看用法）')
     process.exit(1)
