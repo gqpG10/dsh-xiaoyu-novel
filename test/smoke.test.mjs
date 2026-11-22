@@ -67,8 +67,9 @@ test('预设元信息：小鱼创作 + 六个帮手', () => {
 
 test('存量工作区解析：默认 / 环境变量 JSON / 逗号分隔', async () => {
   const mod = await import('../index.mjs')
+  // 默认清单为空（发行包不带任何作者本机路径，用户目录只走环境变量/配置文件）
   const fallback = mod.resolveExtraWorkspaces({}, '/nonexistent-home-for-test')
-  assert.equal(fallback[0].path, '/storage/emulated/0/小说创作')
+  assert.deepEqual(fallback, [])
   const json = mod.resolveExtraWorkspaces({ XIAOYU_EXTRA_WORKSPACES: '[{"path":"/a/书","title":"书"}]' }, '/tmp')
   assert.deepEqual(json, [{ path: '/a/书', title: '书' }])
   const csv = mod.resolveExtraWorkspaces({ XIAOYU_EXTRA_WORKSPACES: '/a,/b' }, '/tmp')

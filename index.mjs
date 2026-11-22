@@ -163,9 +163,7 @@ export const PRESET_ID = 'xiaoyu-novel'
  * 重复调用只返回既有实体，不改标题）。目录不存在或没有 novel/project.yml
  * 的条目直接跳过——清单里可以放心留历史路径。
  */
-export const EXTRA_WORKSPACES = [
-  { path: '/storage/emulated/0/小说创作', title: '小说创作' },
-]
+export const EXTRA_WORKSPACES = []
 
 /** home patch 托管块起止标记（成对出现；只认首对）。 */
 export const MANAGED_BEGIN = '# --- dsh-xiaoyu-novel preset managed (auto-generated; do not edit) ---'
@@ -2133,7 +2131,7 @@ export async function registerCreatorRoutes(ctx) {
             // 报错里带上人话的两种正确写法，比「没有 project.yml」有用得多
             json(res, 422, {
               ok: false,
-              error: '该目录下没有 novel/project.yml。请填工作区根目录（如 /sdcard/小说工作台），它下面要有 novel/project.yml',
+              error: '该目录下没有 novel/project.yml。请填工作区根目录（存放 novel/ 的那一层），它下面要有 novel/project.yml',
             })
             return
           }
