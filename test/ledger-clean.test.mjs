@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { parseFlatYamlArray, checkProject } from '../lib/novel-parse.mjs'
 import {
@@ -242,7 +243,8 @@ test('索引条数不一致：清账本重建 index.yml，撤销能还原', () =
   assert.equal(readFileSync(path.join(dir, 'index.yml'), 'utf8').includes('chapters: []'), true)
 })
 test('三处接线都在：面板按钮 / 服务端路由 / CLI 子命令', () => {
-  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  // Windows：new URL().pathname 返回 /C:/... 带前导斜杠，必须 fileURLToPath。
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const read = (rel) => readFileSync(path.join(root, rel), 'utf8')
   const client = read('lib/client.js')
   assert.ok(client.includes('apiPost("ledger-clean"'), '面板要调 ledger-clean')

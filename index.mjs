@@ -1698,7 +1698,23 @@ export async function registerCreatorRoutes(ctx) {
           let pkg = null
           try { pkg = JSON.parse(readFileSync(path.join(PLUGIN_ROOT, 'package.json'), 'utf8')) } catch { /* 读不到按常规探测 */ }
           const fresh = url.searchParams.get('fresh') === '1'
-          const viaGithub = await checkGithubVersion({ pkg, force: fresh })
+          // 硬超时（3.1.1）：Windows 上 api.github.com 被防火墙/代理挡住时，Node 的
+          // DNS 查询不总能被 AbortSignal 打断——fetch 的 8s 超时可能迟迟不触发，
+          // 请求一挂就是几分钟。浏览器那时只看到「检测中…」不动，用户判断就是
+          // 「检测更新没反应」。这里整体 race 一个 12 秒硬闸：到点无条件回一个
+          // 带原因的结论，绝不把请求挂住。
+          const viaGithub = await Promise.race([
+            checkGithubVersion({ pkg, force: fresh }),
+            new Promise((resolve) => {
+              setTimeout(() => resolve({
+                current: null, latest: null, updateAvailable: false, source: null,
+                releaseUrl: 'https://github.com/' + String(resolveGithubRepo(pkg, process.env) || '') + '/releases',
+                checkedAt: new Date().toISOString(),
+                error: '检测超时（12 秒内没连上 GitHub）——检查网络或代理，稍后重试',
+                timedOut: true,
+              }), 12000)
+            }),
+          ])
           if (viaGithub !== null) {
             json(res, 200, { ok: true, privateRelease: true, ...viaGithub })
             return

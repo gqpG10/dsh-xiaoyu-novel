@@ -1,9 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 
 import {
   PACKAGE_NAME,
@@ -24,7 +25,62 @@ import {
 //   ② 版本源——release 优先、没发 release 退 tags 取最高，脏 tag 一律不采信；
 //   ③ 安装——下载 → 校验 → 备份 → 覆盖，包名/版本对不上就绝不动现网目录。
 
-const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+// Windows：new URL().pathname 返回 /C:/... 带前导斜杠，必须 fileURLToPath。
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+/**
+ * 用纯 Node 造一个 tar.gz（跨平台，不依赖系统 tar/cp）。
+ *
+ * 为什么不 execFileSync('tar', ...)：Windows 上 cp 根本不存在，tar 虽然
+ * Win10 1803+ 自带 bsdtar，但 PATH 里不一定可见、参数方言也不同——测试
+ * 因此会在 Windows 上报一片「命令找不到」。改用 ustar 头自己写：一份实现
+ * 三平台通吃，测的也正是插件真正走的零依赖解压路径。
+ *
+ * @param {string} outFile 输出 .tar.gz 路径
+ * @param {string} srcDir 要打包的目录
+ * @param {string} [topDir] 包内顶层目录名（GitHub tarball 形状）。**必须给**：
+ *   插件的零依赖解压在剥掉第一层目录后合成包根（GitHub 的 tarball 永远是
+ *   `owner-repo-sha/...`），不带顶层目录的包会被它当成「格式不认识」跳过全部
+ *   条目——这正是自动化测试要复现的真实形状。缺省取 `owner-repo-sha`。
+ */
+function makeTarball(outFile, srcDir, topDir) {
+  const header = (name, size, type = '0') => {
+    const block = Buffer.alloc(512, 0)
+    block.write(name, 0, 100, 'utf8')
+    block.write('0000644', 100, 8, 'ascii')
+    block.write('0000000', 108, 8, 'ascii')
+    block.write('0000000', 116, 8, 'ascii')
+    block.write(size.toString(8).padStart(11, '0'), 124, 12, 'ascii')
+    block.write('00000000000', 136, 12, 'ascii')
+    block.write('        ', 148, 8, 'ascii')
+    block.write(type, 156, 1, 'ascii')
+    block.write('ustar', 257, 6, 'ascii')
+    block.write('00', 263, 2, 'ascii')
+    let sum = 0
+    for (const byte of block) sum += byte
+    block.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 8, 'ascii')
+    return block
+  }
+  const parts = []
+  const walk = (dir, prefix) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      const name = prefix === '' ? entry.name : prefix + '/' + entry.name
+      if (entry.isDirectory()) {
+        parts.push(header(name + '/', 0, '5')) // typeflag 5 = 目录
+        walk(full, name)
+        continue
+      }
+      const data = readFileSync(full)
+      parts.push(header(name, data.length), data)
+      const pad = data.length % 512
+      if (pad !== 0) parts.push(Buffer.alloc(512 - pad, 0))
+    }
+  }
+  walk(srcDir, topDir ?? 'owner-repo-sha')
+  parts.push(Buffer.alloc(1024, 0))
+  writeFileSync(outFile, gzipSync(Buffer.concat(parts), { level: 9 }))
+}
 
 test('仓库地址：git+https / https / git@ / ssh / 裸 slug 全认', () => {
   const want = 'gqpG10/dsh-xiaoyu-novel'
@@ -85,7 +141,7 @@ test('安装：包名或版本对不上就绝不动现网目录', async () => {
   mkdirSync(src, { recursive: true })
   writeFileSync(path.join(src, 'package.json'), JSON.stringify({ name: 'someone-else', version: '2.0.0' }), 'utf8')
   const tar = path.join(root, 'bad.tar.gz')
-  execFileSync('tar', ['-czf', tar, '-C', src, '.'])
+  makeTarball(tar, src)
   const out = await applyGithubUpdate({ repo: 'a/b', tag: 'v2.0.0', pluginRoot: plugin, tarballFile: tar, backupRoot: path.join(root, 'bak') })
   assert.equal(out.ok, false)
   assert.equal(out.kind, 'bad-package')
@@ -107,7 +163,7 @@ test('安装：成功路径把新树换进去、清掉旧版遗留文件、留�
   writeFileSync(path.join(src, 'lib', 'new.mjs'), '// 新版\n', 'utf8')
   writeFileSync(path.join(src, 'README.md'), '# 新版说明\n', 'utf8')
   const tar = path.join(root, 'good.tar.gz')
-  execFileSync('tar', ['-czf', tar, '-C', src, '.'])
+  makeTarball(tar, src)
 
   const out = await applyGithubUpdate({
     repo: 'a/b', tag: 'v2.0.0', pluginRoot: plugin, tarballFile: tar, backupRoot: path.join(root, 'bak'),
@@ -134,7 +190,7 @@ test('安装：版本号与 tag 不符也不装（防包与你以为的版本不
   mkdirSync(src, { recursive: true })
   writeFileSync(path.join(src, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version: '2.0.1' }), 'utf8')
   const tar = path.join(root, 'x.tar.gz')
-  execFileSync('tar', ['-czf', tar, '-C', src, '.'])
+  makeTarball(tar, src)
   const out = await applyGithubUpdate({ repo: 'a/b', tag: 'v2.0.0', pluginRoot: plugin, tarballFile: tar, backupRoot: path.join(root, 'bak') })
   assert.equal(out.ok, false)
   assert.equal(out.kind, 'bad-package')
@@ -175,10 +231,9 @@ test('零依赖解压：不靠系统 tar 也能把源码包铺开（多端兼容
   writeFileSync(path.join(src, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version: '9.9.9' }), 'utf8')
   writeFileSync(path.join(src, 'lib', 'big.mjs'), 'x'.repeat(5000), 'utf8')
   const tar = path.join(root, 'pkg.tar.gz')
-  // 造一个带顶层目录的包（模拟 GitHub tarball 形状）
-  mkdirSync(path.join(root, 'wrap', 'owner-repo-sha'), { recursive: true })
-  execFileSync('cp', ['-r', src + '/.', path.join(root, 'wrap', 'owner-repo-sha')])
-  execFileSync('tar', ['-czf', tar, '-C', path.join(root, 'wrap'), 'owner-repo-sha'])
+  // 造一个带顶层目录的包（模拟 GitHub tarball 形状）；顶层目录名由 makeTarball 加，
+  // 不用 cp 复制一份（Windows 上没有 cp）
+  makeTarball(tar, src, 'owner-repo-sha')
   const dest = path.join(root, 'out')
   const out = await extractTarballJs(tar, dest)
   assert.equal(out.ok, true)

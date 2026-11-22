@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // ── 接入项目（0.23.0 修复）─────────────────────────────────────────────────
 // 现场：用户点「接入项目」没反应。查下来是两个问题叠在一起：
@@ -12,7 +13,8 @@ import path from 'node:path'
 //      服务端严格拒绝，提示还只写「没有 novel/project.yml」。
 // 这里守四件事：入口在两种界面都渲染、路径容错、成功提示带路径、报错说人话。
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+// Windows：new URL().pathname 返回 /C:/... 带前导斜杠，必须 fileURLToPath。
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8')
 
 test('接入入口在空态与主界面都渲染（原来只在空态，才有「点了没反应」）', () => {

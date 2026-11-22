@@ -898,7 +898,8 @@ function readProjectPassMark(root) {
 }
 
 function progressFile() {
-  const home = process.env.DSH_HOME || path.join(process.env.HOME || '.', '.dsh')
+  // Windows 没有 HOME（用 USERPROFILE）；os.homedir() 才是三平台正解
+  const home = process.env.DSH_HOME || path.join(process.env.HOME || process.env.USERPROFILE || homedir(), '.dsh')
   return path.join(home, 'xiaoyu-progress.json')
 }
 
