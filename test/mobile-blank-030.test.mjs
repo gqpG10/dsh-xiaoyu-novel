@@ -102,3 +102,18 @@ test('快照缺席的分支要能在自检里被识别（否则下次仍只能�
   assert.match(JS, /out.shellBranch = SHELL_BRANCH/, '自检要上报当前分支')
 })
 
+
+test('overlay 高度有实测下限：中栏塌了也不能让内容区没高度', () => {
+  // 打开态会把中栏里除 overlay 外的子元素全部 display:none。若中栏高度
+  // 「由内容决定」，子元素一隐它自己就塌，overlay 的 height:100% 跟着塌，
+  // 只剩 CSS 的 min-height 在撑 —— 而手机上顶栏 + 九个折行 tab 正好吃掉
+  // 300px 上下，内容区拿到的高度≈0。
+  assert.match(JS, /applyHeightFloor/, '要按实测值给容器设高度下限')
+  assert.match(JS, /window\.innerHeight/, '下限要参考视口高度')
+  assert.match(JS, /minHeight/, '要写到 container.style.minHeight')
+  assert.match(JS, /clientHeight/, '要量中栏实际高度才能判断是否塌了')
+  // 不允许只量一次：折行/字体收敛后要再校一次，窗口尺寸变化也跟着校
+  assert.match(JS, /setTimeout\(applyHeightFloor/, '要有延迟复校')
+  assert.match(JS, /addEventListener\("resize"/, '要跟窗口尺寸变化')
+})
+
