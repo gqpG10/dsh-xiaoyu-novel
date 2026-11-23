@@ -2044,6 +2044,21 @@ export async function registerCreatorRoutes(ctx) {
         }
 
         if (route === 'state' && req.method === 'GET') {
+          // 观测点（3.1.9）：面板每次真的拉快照都会经过这里。真机排查时这行是
+          // 「面板到底有没有在跑新代码」的唯一可靠信号——比让用户描述界面准。
+          try {
+            const line = JSON.stringify({
+              at: new Date().toISOString(), tag: 'state-hit',
+              ua: String(req.headers['user-agent'] || '').slice(0, 160),
+              ref: String(req.headers['referer'] || '').slice(0, 160),
+              blocks: url.searchParams.get('blocks') || '',
+              scope: url.searchParams.get('scope') || '',
+            })
+            const logFile = path.join(resolveDshHome(), 'xiaoyu-diag.log')
+            let prev = ''
+            try { prev = readFileSync(logFile, 'utf8').split('\n').filter(Boolean).slice(-399).join('\n') + '\n' } catch { prev = '' }
+            writeFileSync(logFile, prev + line + '\n')
+          } catch { /* 观测失败绝不影响业务 */ }
           // 全量快照（§3 契约）：path 钉死在注册表白名单内后才进解析层；
           // 单个坏文件进 warnings 不炸快照。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
