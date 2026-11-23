@@ -41,10 +41,13 @@ test('overlay 根即使四边全失效也要铺满（width/height 100% + min-hei
   const start = CSS.indexOf('[data-dsh-xiaoyu-novel-view]')
   assert.notEqual(start, -1, 'overlay 根选择器要存在')
   const block = CSS.slice(start, start + 900)
-  assert.match(block, /width:\s*100%/, '要显式 width:100%')
-  assert.match(block, /height:\s*100%/, '要显式 height:100%')
+  // 3.2.0：改 fixed 定位后，宽高用 vw/vh 显式钉死（视口基准，不受祖先影响）。
+  // 断言放宽成「显式写了视口单位或百分比」，语义不变：尺寸必须写死，不能靠继承。
+  assert.match(block, /width:\s*(100%|100vw)/, '要显式写宽度')
+  assert.match(block, /height:\s*(100%|100vh)/, '要显式写高度')
   assert.match(block, /min-height:/, '要有最小高，防止被内容撑成 0')
   assert.match(block, /background-color:\s*#/, '要有不依赖变量的兜底底色')
+  assert.match(block, /position:\s*fixed/, '要用视口基准定位（absolute 会被祖先滚动/裁切坑死）')
 })
 
 test('每个 @container(max-width) 都有 @media 孪生（WebView 不支持容器查询）', () => {

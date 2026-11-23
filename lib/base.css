@@ -67,23 +67,24 @@ div:has(> div[data-slot="sidebar.footer.action"]) {
   position: relative;
 }
 [data-dsh-xiaoyu-novel-view] {
-  position: absolute;
+  /* 3.2.0：改成 fixed。absolute 的定位基准是「会话中栏」，而中栏在长会话里
+     可能被滚动、被别的容器裁切、或高度由内容决定——一旦基准不在视口顶部，
+     整个面板就被画到可视区外面，用户看到的就是「连顶栏都没有的一片黑」。
+     fixed 的基准是视口，不受祖先的 scroll/overflow/height 影响。
+     vw/vh 显式写死，避免 percentage 在祖先高度不确定时解析成 auto。 */
+  position: fixed;
   /* 四边分别写：inset 是 Chrome 87 才有的语法，老 WebView 整条丢弃 →
      绝对定位容器没有宽高 → 面积 0 → 整屏只剩底色（手机黑屏）。 */
   inset: 0;
   top: 0; right: 0; bottom: 0; left: 0;
-  width: 100%;
-  height: 100%;
-  /* 确定高度（3.1.4）：百分比高度要父级高度是确定值才解得出来。中栏在打开态
-     被清空子元素，高度可能是 auto，height:100% 便也算成 auto，下游 .myt-shell
-     的 100% 与 .myt-body 的 flex:1 全部失去参照 → 内容区 0 高 → 黑屏 + 划不动。
-     vh 是绝对单位，钉成确定值，后写覆盖前一条。 */
+  width: 100vw;
   height: 100vh;
   min-height: 320px;
   max-height: 100vh;
   /* 超出交给内部滚动器，别把内容推到屏外 */
   overflow: hidden;
-  z-index: 10;
+  /* 高于宿主一切浮层（宿主自己用 1000 上下），避免被侧栏/输入框盖住 */
+  z-index: 2147483000;
   display: none;
   background-color: #17181c;
   background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1, #1d1f24));
