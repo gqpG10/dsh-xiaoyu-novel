@@ -134,6 +134,8 @@ import { commitAll, gitAvailable, initRepo, listCommits, repoStatus, restoreFile
 import { buildHandoff, renderHandoff } from './lib/handoff-core.mjs'
 import { applyRelationStarts, proposeRelationStarts } from './lib/relations-tools.mjs'
 import { applyRelationDedupe, planRelationDedupe } from './lib/relations-dedupe.mjs'
+// 3.1.5 独立版面板：零依赖 HTML（不加载 client bundle、不加载 base.css）
+import { STANDALONE_PANEL_HTML } from './lib/standalone-panel.mjs'
 
 // loadYamlLib / resolveDshHome 已迁至 lib/yaml-loader.mjs（创作台业务层与
 // 安装器共用，避免 panel-core 反向 import 主入口）；这里再导出保住本入口的
@@ -1688,6 +1690,19 @@ export async function registerCreatorRoutes(ctx) {
             ctx.logger?.warn?.('xiaoyu-novel 创作台: client.css 读取失败: ' + String(err?.message ?? err))
             json(res, 500, { ok: false, error: sanitizeWithRoots(`client.css 不可用: ${err?.message ?? err}`) })
           }
+          return
+        }
+
+        // ── 独立版面板（3.1.5）：零依赖、可直接用的完整面板页 ─────────────────
+        // 主面板在这台设备上连续四轮黑屏，这里给一个「什么都不靠」的可用版本：
+        // 内联样式、原生 DOM、文档流布局、同一套 /api/xiaoyu-novel/* 接口。
+        // 它同时是判定器——这个页面正常而主面板黑，问题就在宿主 bundle/React 层。
+        if (route === 'panel' && req.method === 'GET') {
+          res.writeHead(200, {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+          })
+          res.end(STANDALONE_PANEL_HTML)
           return
         }
 
