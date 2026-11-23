@@ -120,8 +120,7 @@ test('章纲对照：窄实例默认收起（按自身实宽判，宽实例仍�
   assert.ok(/className: "myt-outlinePanel", ref: panelRef/.test(chunk), '测宽的 ref 没挂到面板根')
 })
 test('正文是"一个框"：带边框、框内滚动、滚动链不外溢', () => {
-  // 同 collapse-box：允许令牌自带后备值（缺主题变量的设备靠它才看得见边框）
-  assert.ok(/\.myt-bodyPanel \.myt-chapterBody \{[^}]*border: 1px solid var\(--dsw-alias-border-l1(?:,[^)]*)?\)/.test(css), '正文在面板里没有自己的边框（不成框）')
+  assert.ok(/\.myt-bodyPanel \.myt-chapterBody \{[^}]*border: 1px solid var\(--dsw-alias-border-l1\)/.test(css), '正文在面板里没有自己的边框（不成框）')
   assert.ok(/\.myt-bodyPanel \.myt-chapterBody \{[^}]*overscroll-behavior: contain/.test(css), '框内滚到底会带着整页跑')
   assert.ok(/\.myt-outlineBody \{[^}]*overscroll-behavior: contain/.test(css), '章纲框同样缺滚动隔离')
   assert.ok(/\.myt-chapterBody \{ max-height: var\(--myt-box-h\)/.test(css), '正文框没给固定高度（要么撑长要么太小）')
