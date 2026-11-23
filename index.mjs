@@ -1698,11 +1698,19 @@ export async function registerCreatorRoutes(ctx) {
         // 内联样式、原生 DOM、文档流布局、同一套 /api/xiaoyu-novel/* 接口。
         // 它同时是判定器——这个页面正常而主面板黑，问题就在宿主 bundle/React 层。
         if (route === 'panel' && req.method === 'GET') {
+          // 现读磁盘（3.1.8）：这个页面改版很频繁，每次都要重启宿主太伤了。
+          // 和 client.css 同款处理——请求时读 lib/standalone-panel.html，
+          // 改完刷新页面即生效；文件缺失/读失败才回落到打包进来的常量。
+          let html = STANDALONE_PANEL_HTML
+          try {
+            html = await readFile(new URL('./lib/standalone-panel.html', import.meta.url), 'utf8')
+          } catch { /* 回落到内置常量 */ }
           res.writeHead(200, {
             'content-type': 'text/html; charset=utf-8',
+            'content-length': Buffer.byteLength(html),
             'cache-control': 'no-store',
           })
-          res.end(STANDALONE_PANEL_HTML)
+          res.end(html)
           return
         }
 

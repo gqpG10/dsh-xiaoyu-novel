@@ -56,7 +56,11 @@ test('独立版面板：服务端有路由且禁止缓存', () => {
   assert.match(SERVER, /route === 'panel' && req.method === 'GET'/, '要有 panel 路由')
   assert.match(SERVER, /STANDALONE_PANEL_HTML/, '路由要下发独立版 HTML')
   const at = SERVER.indexOf("route === 'panel'")
-  assert.match(SERVER.slice(at, at + 400), /no-store/, '独立版页面不许被缓存')
+  const block = SERVER.slice(at, at + 900)
+  assert.match(block, /no-store/, '独立版页面不许被缓存')
+  // 3.1.8：页面正文现读磁盘，改版不必重启宿主（与 client.css 同款）
+  assert.match(block, /readFile\(new URL\('\.\/lib\/standalone-panel\.html'/, '要现读 lib/standalone-panel.html')
+  assert.match(block, /STANDALONE_PANEL_HTML/, '文件缺失时要有内置常量回落')
 })
 
 test('独立版面板：快照 ok:false 必须显式报错（主面板就栽在静默吞掉）', () => {

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>小鱼创作台</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#101114;color:#e9eaec;
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+    -webkit-text-size-adjust:100%}
+  .bar{position:sticky;top:0;z-index:30;background:#171a1f;border-bottom:1px solid #33373f;
+    padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .brand{font-size:15px;font-weight:700;white-space:nowrap}
+  .badge{font-size:11px;color:#8d939c;border:1px solid #474d56;border-radius:999px;padding:0 7px;white-space:nowrap}
+  .grow{flex:1 1 auto}
+  select,button,input{font:inherit;font-size:13px;color:#e9eaec;background:#23262c;border:1px solid #3d424a;
+    border-radius:8px;padding:5px 9px;min-height:32px}
+  button:active{background:#2e333a}
+  button.pri{background:#4b8bf5;border-color:#4b8bf5;color:#fff}
+  button.sm{min-height:26px;padding:2px 8px;font-size:12px}
+  select{max-width:46vw}
+  nav.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid #33373f;background:#15181c}
+  nav.tabs button{background:transparent;border:none;color:#b9bdc4;min-height:30px;padding:4px 9px}
+  nav.tabs button[aria-current="true"]{color:#fff;background:#2e333a;border-radius:8px}
+  main{padding:10px}
+  .card{background:#1d1f24;border:1px solid #34383f;border-radius:12px;padding:12px;margin:0 0 10px}
+  .card h3{margin:0 0 8px;font-size:14px;color:#b9bdc4;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;padding:5px 0;border-bottom:1px solid #24272d}
+  .row:last-child{border-bottom:none}
+  .k{color:#8d939c;font-size:12px;min-width:4.6em;flex:none}
+  .v{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+  .muted{color:#8d939c;font-size:12.5px}
+  .pill{display:inline-block;font-size:11px;border:1px solid #474d56;border-radius:999px;padding:0 6px;margin-left:5px;color:#b9bdc4;white-space:nowrap}
+  .chap{display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;background:transparent;border:none;
+    border-bottom:1px solid #24272d;border-radius:0;padding:9px 4px;color:#e9eaec;min-height:42px}
+  .chap .no{color:#8d939c;font-size:12px;flex:none;min-width:3.2em}
+  .chap .ti{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+  .chap .w{color:#8d939c;font-size:11px;flex:none}
+  .body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.85;background:#1d1f24;
+    border:1px solid #34383f;border-radius:12px;padding:14px}
+  .err{background:#2a1a1c;border:1px solid #ef5b5b;color:#ffb4b4;border-radius:10px;padding:10px 12px;margin:0 0 10px}
+  .ok{color:#3fbf7f}
+  .note{font-size:12px;color:#8d939c;padding:4px 2px;min-height:18px}
+  a{color:#6fa8ff}
+</style></head>
+<body>
+
+<div class="bar">
+  <span class="brand">小鱼创作台</span>
+  <span class="badge" id="build" title="本页面自身的构建版本（不来自接口）">独立版</span>
+  <select id="ws" aria-label="工作区"></select>
+  <span class="grow"></span>
+  <button id="btnReload" type="button">刷新</button>
+  <button id="btnCheck" type="button">检测更新</button>
+  <button id="btnDiag" type="button" class="pri">自检</button>
+</div>
+
+<nav class="tabs" id="tabs"></nav>
+<main id="view"><div class="note">正在读取…</div></main>
+<div id="note" class="note"></div>
+
+<script>
+var BUILD = '3.1.8';
+(function () {
+  'use strict';
+  var API = '/api/xiaoyu-novel/';
+  var TABS = [['overview','概览'],['chapters','章节'],['characters','角色'],['foreshadows','伏笔'],
+              ['relations','关系'],['timeline','时间线'],['world','设定'],['index','索引'],['tools','工具']];
+  var S = { ws: '', data: null, tab: 'overview', reader: null, err: '', q: '' };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+  function note(t) { $('note').textContent = t || ''; }
+
+  function get(path, params) {
+    var qs = [];
+    Object.keys(params || {}).forEach(function (k) {
+      if (params[k] != null) qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+    });
+    return fetch(API + path + (qs.length ? '?' + qs.join('&') : ''))
+      .then(function (r) { return r.text().then(function (t) {
+        var d = null; try { d = t ? JSON.parse(t) : null; } catch (e) {}
+        if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        if (!d) throw new Error('返回不是 JSON（HTTP ' + r.status + '）');
+        return d;
+      }); });
+  }
+  function postJson(path, body) {
+    return fetch(API + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json(); });
+  }
+  function copy(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return legacy(text); });
+    }
+    return Promise.resolve(legacy(text));
+  }
+  function legacy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = document.execCommand('copy'); ta.remove(); return ok;
+    } catch (e) { return false; }
+  }
+
+  function tabBar() {
+    $('tabs').innerHTML = TABS.map(function (t) {
+      var cur = (!S.reader && S.tab === t[0]) ? 'true' : 'false';
+      return '<button type="button" data-tab="' + t[0] + '" aria-current="' + cur + '">' + t[1] + '</button>';
+    }).join('');
+  }
+  function rows(pairs) {
+    var out = pairs.filter(function (p) { return p && p[1] != null && String(p[1]).trim() !== ''; })
+      .map(function (p) {
+        return '<div class="row"><span class="k">' + esc(p[0]) + '</span><span class="v">' + esc(p[1]) + '</span></div>';
+      }).join('');
+    return out || '<div class="muted">（无）</div>';
+  }
+
+  /* ── 概览 ── */
+  function vOverview(d) {
+    var p = d.project || {}, ch = d.chapters || [], words = 0, by = {};
+    ch.forEach(function (c) { words += Number(c.words || 0); var s = c.status || '未标'; by[s] = (by[s] || 0) + 1; });
+    var dist = Object.keys(by).map(function (k) { return k + ' ' + by[k]; }).join(' · ');
+    return '<div class="card"><h3>书稿</h3>' + rows([
+      ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
+      ['阶段', p.phase], ['模式', p.mode], ['连载', p.serial], ['简介', p.description]
+    ]) + '</div>' +
+    '<div class="card"><h3>统计</h3>' + rows([
+      ['章节', ch.length + ' 章'], ['总字数', words + ' 字'], ['状态分布', dist],
+      ['角色', (d.characters || []).length], ['伏笔', (d.foreshadows || []).length],
+      ['关系', (d.relations || []).length], ['时间线', (d.timeline || []).length],
+      ['设定', (d.world || []).length], ['线索', (d.clues || []).length], ['记忆', (d.memories || []).length]
+    ]) + '</div>' +
+    ((d.warnings || []).length ? '<div class="card"><h3>体检提示 <span class="badge">' + d.warnings.length + '</span></h3>' +
+      d.warnings.map(function (w) {
+        return '<div class="row"><span class="v">' + esc(typeof w === 'string' ? w : (w && w.message) || JSON.stringify(w)) + '</span></div>';
+      }).join('') + '</div>' : '');
+  }
+
+  /* ── 章节 ── */
+  function vChapters(d) {
+    var list = (d.chapters || []).slice();
+    if (!list.length) return '<div class="card"><div class="muted">还没有章节</div></div>';
+    var q = S.q.trim().toLowerCase();
+    if (q) list = list.filter(function (c) {
+      return String(c.title || '').toLowerCase().indexOf(q) >= 0 ||
+             String(c.summary || '').toLowerCase().indexOf(q) >= 0 ||
+             String(c.file || '').toLowerCase().indexOf(q) >= 0;
+    });
+    return '<div class="card"><h3>共 ' + list.length + ' 章</h3>' +
+      '<input id="q" placeholder="搜标题 / 摘要 / 文件名" value="' + esc(S.q) + '" style="width:100%;margin-bottom:8px">' +
+      list.map(function (c) {
+        return '<button type="button" class="chap" data-file="' + esc(c.file) + '">' +
+          '<span class="no">第' + esc(c.num != null ? c.num : '?') + '章</span>' +
+          '<span class="ti">' + esc(c.title || c.file) +
+            (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') +
+            (c.summary ? '<div class="muted">' + esc(String(c.summary).slice(0, 90)) + '</div>' : '') +
+          '</span><span class="w">' + esc(c.words || 0) + '</span></button>';
+      }).join('') + '</div>';
+  }
+
+  /* ── 阅读 ── */
+  function vReader() {
+    var r = S.reader;
+    if (r.loading) return '<div class="note">正在读取 ' + esc(r.file) + ' …</div>';
+    if (r.err) return '<div class="err">读取失败：' + esc(r.err) + '</div>';
+    var words = String(r.body || '').replace(/\s/g, '').length;
+    return '<div class="card"><h3>' + esc(r.title || r.file) + '<span class="badge">' + words + ' 字</span></h3>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button type="button" id="btnBack" class="sm">← 章节列表</button>' +
+        '<button type="button" id="btnPrev" class="sm">上一章</button>' +
+        '<button type="button" id="btnNext" class="sm">下一章</button>' +
+        '<button type="button" id="btnCopy" class="sm">复制全章</button>' +
+      '</div>' +
+      (r.outline ? '<div class="card" style="margin-top:10px"><h3>章纲</h3><div class="muted" style="white-space:pre-wrap">' +
+        esc(String(r.outline).slice(0, 1200)) + '</div></div>' : '') +
+      '</div><div class="body" id="bodyText">' + esc(r.body || '（本章正文为空）') + '</div>';
+  }
+
+  /* ── 其它分区 ── */
+  function vCharacters(d) {
+    var list = d.characters || [];
+    if (!list.length) return '<div class="card"><div class="muted">还没有角色卡</div></div>';
+    return list.map(function (c) {
+      return '<div class="card"><h3>' + esc(c.name || c.file) +
+        (c.role ? '<span class="pill">' + esc(c.role) + '</span>' : '') +
+        (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') + '</h3>' + rows([
+        ['年龄', c.age], ['性别', c.gender], ['外貌', c.appearance], ['性格', c.personality],
+        ['背景', c.background], ['动机', c.motivation], ['成长线', c.arc],
+        ['心理', c.psychology], ['首次出场', c.debut_chapter]
+      ]) + '</div>';
+    }).join('');
+  }
+  function vForeshadows(d) {
+    var list = d.foreshadows || [];
+    if (!list.length) return '<div class="card"><div class="muted">还没有伏笔</div></div>';
+    return '<div class="card"><h3>伏笔 ' + list.length + ' 条</h3>' + list.map(function (f) {
+      return '<div class="row"><span class="k">' + esc(f.id || '') + '</span><span class="v">' +
+        esc(f.title || f.content || '') +
+        (f.status ? '<span class="pill">' + esc(f.status) + '</span>' : '') +
+        (f.priority ? '<span class="pill">' + esc(f.priority) + '</span>' : '') +
+        (f.planted_chapter ? '<span class="pill">埋 ' + esc(f.planted_chapter) + '</span>' : '') +
+        (f.expected_resolve ? '<span class="pill">收 ' + esc(f.expected_resolve) + '</span>' : '') +
+        (f.notes ? '<div class="muted">' + esc(f.notes) + '</div>' : '') + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function vRelations(d) {
+    var list = d.relations || [];
+    if (!list.length) return '<div class="card"><div class="muted">还没有关系</div></div>';
+    return '<div class="card"><h3>关系 ' + list.length + ' 条</h3>' + list.map(function (r) {
+      return '<div class="row"><span class="k">' + esc(r.a) + ' — ' + esc(r.b) + '</span><span class="v">' +
+        esc(r.description || '') +
+        (r.type ? '<span class="pill">' + esc(r.type) + '</span>' : '') +
+        (r.intensity ? '<span class="pill">强度 ' + esc(r.intensity) + '</span>' : '') +
+        (r.phase ? '<span class="pill">' + esc(r.phase) + '</span>' : '') + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function vTimeline(d) {
+    var list = d.timeline || [];
+    if (!list.length) return '<div class="card"><div class="muted">还没有时间线</div></div>';
+    return '<div class="card"><h3>时间线 ' + list.length + ' 条</h3>' + list.map(function (t) {
+      return '<div class="row"><span class="k">' + esc(t.year || t.chapter || '') + '</span><span class="v">' +
+        esc(t.title || '') + (t.description ? '<div class="muted">' + esc(t.description) + '</div>' : '') + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function vWorld(d) {
+    var list = d.world || [];
+    if (!list.length) return '<div class="card"><div class="muted">还没有设定</div></div>';
+    return list.map(function (w) {
+      return '<div class="card"><h3>' + esc(w.name || w.file) +
+        (w.category ? '<span class="pill">' + esc(w.category) + '</span>' : '') + '</h3>' +
+        '<div class="muted" style="white-space:pre-wrap">' + esc(w.description || '') + '</div></div>';
+    }).join('');
+  }
+  function vIndex(d) {
+    var clues = d.clues || [], mem = d.memories || [];
+    return '<div class="card"><h3>线索 ' + clues.length + '</h3>' +
+      (clues.length ? clues.slice(0, 300).map(function (c) {
+        return '<div class="row"><span class="k">' + esc(c.kind || '') + '</span><span class="v">' +
+          esc(c.content || '') + (c.related_chapter ? '<span class="pill">' + esc(c.related_chapter) + '</span>' : '') + '</span></div>';
+      }).join('') : '<div class="muted">（无）</div>') + '</div>' +
+      '<div class="card"><h3>叙事记忆 ' + mem.length + '</h3>' +
+      (mem.length ? mem.slice(-150).map(function (m) {
+        return '<div class="row"><span class="k">' + esc(m.category || '') + '</span><span class="v">' + esc(m.content || '') + '</span></div>';
+      }).join('') : '<div class="muted">（无）</div>') + '</div>';
+  }
+  function vTools() {
+    var q = '?path=' + encodeURIComponent(S.ws);
+    return '<div class="card"><h3>导出</h3><div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      ['md','txt','epub','docx'].map(function (f) {
+        return '<a class="sm" style="display:inline-block;padding:5px 10px;border:1px solid #3d424a;border-radius:8px;text-decoration:none" ' +
+          'href="' + API + 'export-book' + q + '&format=' + f + '">整本导出 ' + f.toUpperCase() + '</a>';
+      }).join('') + '</div></div>' +
+      '<div class="card"><h3>工具（只读）</h3><div class="muted">体检、门禁、回收站等需要更长耗时，先在面板里用；这里先给最常用的导出入口。</div>' +
+      '<div style="margin-top:8px"><button type="button" id="btnCsv" class="sm">导出章节清单 CSV</button></div></div>' +
+      '<div class="card"><h3>连接信息</h3>' + rows([
+        ['工作区', S.ws], ['页面构建', BUILD], ['接口前缀', API]
+      ]) + '</div>';
+  }
+
+  /* ── 渲染 ── */
+  function render() {
+    tabBar();
+    $('build').textContent = 'b' + BUILD;
+    var v = $('view');
+    if (S.err) {
+      v.innerHTML = '<div class="err">读取失败：' + esc(S.err) +
+        '<div class="muted" style="margin-top:6px">点顶栏「刷新」重试。</div></div>';
+      return;
+    }
+    if (!S.data) { v.innerHTML = '<div class="note">正在读取…</div>'; return; }
+    if (S.reader) { v.innerHTML = vReader(); bindReader(); return; }
+    var fns = { overview: vOverview, chapters: vChapters, characters: vCharacters,
+                foreshadows: vForeshadows, relations: vRelations, timeline: vTimeline,
+                world: vWorld, index: vIndex, tools: vTools };
+    v.innerHTML = (fns[S.tab] || vOverview)(S.data);
+    bindChapters();
+    var q = $('q');
+    if (q) {
+      q.addEventListener('input', function () {
+        S.q = q.value;
+        var d = S.data; S.data = d;
+        var pos = q.selectionStart;
+        render();
+        var q2 = $('q'); if (q2) { q2.focus(); try { q2.setSelectionRange(pos, pos); } catch (e) {} }
+      });
+    }
+    var csv = $('btnCsv');
+    if (csv) csv.addEventListener('click', exportCsv);
+  }
+
+  function bindChapters() {
+    Array.prototype.forEach.call(document.querySelectorAll('.chap'), function (b) {
+      b.addEventListener('click', function () { openChapter(b.getAttribute('data-file')); });
+    });
+  }
+  function chapterList() { return (S.data && S.data.chapters) || []; }
+  function indexOfFile(file) {
+    var list = chapterList();
+    for (var i = 0; i < list.length; i++) if (list[i].file === file) return i;
+    return -1;
+  }
+  function bindReader() {
+    var back = $('btnBack'), prev = $('btnPrev'), next = $('btnNext'), cp = $('btnCopy');
+    if (back) back.addEventListener('click', function () { S.reader = null; render(); });
+    if (prev) prev.addEventListener('click', function () {
+      var i = indexOfFile(S.reader && S.reader.file);
+      if (i > 0) openChapter(chapterList()[i - 1].file); else note('已经是第一章');
+    });
+    if (next) next.addEventListener('click', function () {
+      var i = indexOfFile(S.reader && S.reader.file);
+      if (i >= 0 && i + 1 < chapterList().length) openChapter(chapterList()[i + 1].file); else note('已经是最后一章');
+    });
+    if (cp) cp.addEventListener('click', function () {
+      var t = (S.reader && S.reader.title ? S.reader.title + '\n\n' : '') + ((S.reader && S.reader.body) || '');
+      copy(t).then(function (ok) { note(ok ? '已复制全章' : '复制失败（可长按正文手动选择）'); });
+    });
+  }
+  function openChapter(file) {
+    if (!file) return;
+    var idx = indexOfFile(file);
+    var meta = idx >= 0 ? chapterList()[idx] : null;
+    S.reader = { file: file, loading: true, title: meta ? meta.title : file, body: '' };
+    render(); window.scrollTo(0, 0);
+    get('chapter', { path: S.ws, file: file }).then(function (d) {
+      S.reader = { file: file, loading: false, title: (meta && meta.title) || file,
+        body: (d && d.body) || '', outline: (d && d.outline && d.outline.body) || '' };
+      S.err = ''; render();
+    }).catch(function (e) {
+      if (S.reader) { S.reader.loading = false; S.reader.err = String((e && e.message) || e); }
+      render();
+    });
+  }
+  function exportCsv() {
+    var list = chapterList();
+    var lines = ['章号,标题,状态,字数,文件'];
+    list.forEach(function (c) {
+      lines.push([c.num, c.title, c.status, c.words, c.file].map(function (x) {
+        return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"';
+      }).join(','));
+    });
+    var blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = '章节清单.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    note('已导出章节清单 CSV');
+  }
+
+  function loadState() {
+    if (!S.ws) { S.data = null; S.err = '没有可用的工作区'; render(); return Promise.resolve(); }
+    S.err = '';
+    return get('state', { path: S.ws }).then(function (d) {
+      if (!d || d.ok === false) { S.data = null; S.err = (d && d.error) || '状态快照为空'; }
+      else S.data = d;
+      render();
+    }).catch(function (e) { S.data = null; S.err = String((e && e.message) || e); render(); });
+  }
+
+  function boot() {
+    $('build').textContent = 'b' + BUILD;
+    get('workspaces').then(function (d) {
+      var list = (d && d.workspaces) || [];
+      var sel = $('ws');
+      sel.innerHTML = list.map(function (w, i) {
+        return '<option value="' + esc(w.path) + '"' + (w.hasNovel ? '' : ' disabled') + '>' +
+          esc((w.name || w.path || ('工作区' + (i + 1))) + (w.hasNovel ? '' : '（无 novel）')) + '</option>';
+      }).join('') || '<option value="">（无工作区）</option>';
+      var usable = list.filter(function (w) { return w.hasNovel; });
+      if (!usable.length) { S.err = '没有任何含 novel/ 的工作区。'; render(); return; }
+      var saved = '';
+      try { saved = localStorage.getItem('xiaoyu.ws.panel') || ''; } catch (e) {}
+      S.ws = (saved && usable.some(function (w) { return w.path === saved; })) ? saved : usable[0].path;
+      sel.value = S.ws;
+      return loadState();
+    }).catch(function (e) { S.err = String((e && e.message) || e); render(); });
+
+    get('update-check').then(function (d) {
+      if (d && d.current) $('build').title = '服务端 v' + d.current + ' · 页面 b' + BUILD;
+    }).catch(function () {});
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (t && t.getAttribute && t.getAttribute('data-tab')) {
+      S.tab = t.getAttribute('data-tab'); S.reader = null; render(); window.scrollTo(0, 0);
+    }
+  });
+  $('ws').addEventListener('change', function () {
+    S.ws = $('ws').value; S.reader = null;
+    try { localStorage.setItem('xiaoyu.ws.panel', S.ws); } catch (e) {}
+    loadState();
+  });
+  $('btnReload').addEventListener('click', function () {
+    note('正在重新读取…');
+    loadState().then(function () { note('已刷新 ' + new Date().toLocaleTimeString()); });
+  });
+  $('btnCheck').addEventListener('click', function () {
+    note('正在检测更新…');
+    fetch(API + 'update-check?fresh=1').then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.updateAvailable) note('有新版本 v' + d.latest + '（当前 v' + d.current + '）');
+      else if (d && d.error) note('检测失败：' + d.error);
+      else note('已是最新（v' + ((d && d.current) || '?') + ' · ' + new Date().toLocaleTimeString() + '）');
+    }).catch(function (e) { note('检测失败：' + ((e && e.message) || e)); });
+  });
+  $('btnDiag').addEventListener('click', function () {
+    var payload = { tag: 'standalone-panel', build: BUILD, shellBranch: 'standalone',
+      ua: String(navigator.userAgent || '').slice(0, 200), vw: innerWidth, vh: innerHeight,
+      standalone: { ws: S.ws, tab: S.tab, hasData: !!S.data,
+        chapters: chapterList().length, err: S.err, reading: !!(S.reader && S.reader.file) } };
+    try { fetch(API + 'client-diag', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload), keepalive: true }); } catch (e) {}
+    note('自检已发送（服务端 xiaoyu-diag.log）');
+  });
+
+  render();
+  boot();
+})();
+</script></body></html>
