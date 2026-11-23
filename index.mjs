@@ -1691,6 +1691,123 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        // ── 独立探针页（3.1.4）：不依赖 React、不依赖宿主 bundle ─────────────
+        // 三轮「改代码 → 手机还是黑」之后必须承认：光看代码分不清是 CSS 在这台
+        // 设备的 WebView 上不生效，还是 React 那层压根没跑起来。这一页把两件事
+        // 一次问清：上半屏打印该 WebView 的实测能力，下半屏用**同一份 base.css**
+        // 渲染一个纯静态的面板骨架副本。副本正常 → CSS 无罪，问题在 JS 层；
+        // 副本也黑 → 就是这台设备的 CSS/主题问题。
+        if (route === 'client-env' && req.method === 'GET') {
+          let cssHref = '/api/xiaoyu-novel/client.css?v=' + Date.now()
+          const page = String.raw`<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>小鱼创作台 · 设备自检</title>
+<style>
+  html,body{margin:0;padding:0;background:#101114;color:#e9eaec;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif}
+  .probe{padding:12px 14px;border-bottom:1px solid #33373f}
+  .probe h1{font-size:16px;margin:0 0 8px}
+  .probe table{border-collapse:collapse;width:100%;font-size:12.5px}
+  .probe td{padding:3px 6px;border-bottom:1px solid #24272d;vertical-align:top}
+  .probe td:first-child{color:#8d939c;white-space:nowrap;width:42%}
+  .ok{color:#3fbf7f}.bad{color:#ef5b5b}
+  .replicaWrap{padding:0;margin:0}
+  .replicaLabel{padding:8px 14px;font-size:12px;color:#8d939c;background:#171a1f}
+</style></head><body>
+<div class="probe">
+  <h1>小鱼创作台 · 设备自检</h1>
+  <table id="probeTable"></table>
+</div>
+<div class="replicaLabel" id="replicaLabel">下面是用**同一份面板 CSS** 渲染的静态副本（无 React）。能看到「测试正文」就说明 CSS 无罪。</div>
+<div class="replicaWrap" id="replica"></div>
+<link rel="stylesheet" href="` + cssHref + String.raw`">
+<script>
+(function () {
+  var rows = [];
+  function row(k, v, cls) { rows.push('<tr><td>' + k + '</td><td class="' + (cls || '') + '">' + v + '</td></tr>'); }
+  function sup(prop, val) { try { return CSS.supports(prop, val); } catch (e) { return false; } }
+  row('视口 innerWidth×innerHeight', innerWidth + ' × ' + innerHeight);
+  row('visualViewport', window.visualViewport ? (Math.round(visualViewport.width) + ' × ' + Math.round(visualViewport.height)) : '不支持');
+  row('devicePixelRatio', String(devicePixelRatio || 1));
+  row('100vh 实际值', (function () { var d = document.createElement('div'); d.style.cssText = 'position:absolute;height:100vh;width:0;visibility:hidden'; document.body.appendChild(d); var h = d.getBoundingClientRect().height; d.remove(); return Math.round(h); })());
+  row('CSS.supports 可用', typeof CSS !== 'undefined' && typeof CSS.supports === 'function' ? '是' : '否', typeof CSS !== 'undefined' && CSS.supports ? 'ok' : 'bad');
+  row('inset 简写', sup('inset', '0') ? '支持' : '不支持', sup('inset', '0') ? 'ok' : 'bad');
+  row('container-type', sup('container-type', 'inline-size') ? '支持' : '不支持', sup('container-type', 'inline-size') ? 'ok' : 'bad');
+  row('color-mix()', sup('color', 'color-mix(in srgb, #fff 50%, #000)') ? '支持' : '不支持', sup('color', 'color-mix(in srgb, #fff 50%, #000)') ? 'ok' : 'bad');
+  row('touch-action', sup('touch-action', 'pan-y') ? '支持' : '不支持', sup('touch-action', 'pan-y') ? 'ok' : 'bad');
+  row('overscroll-behavior', sup('overscroll-behavior', 'contain') ? '支持' : '不支持', sup('overscroll-behavior', 'contain') ? 'ok' : 'bad');
+  row('原生 :has()', sup('selector(:has(*))', '') ? '支持' : '不支持');
+  var probeEl = document.createElement('div'); document.body.appendChild(probeEl);
+  var cs = getComputedStyle(probeEl);
+  var keys = ['--dsw-alias-bg-base', '--dsw-alias-bg-layer-1', '--dsw-alias-bg-layer-2', '--dsw-alias-bg-layer-3', '--dsw-alias-label-primary', '--dsw-alias-border-l1', '--dsw-alias-state-business-primary'];
+  var missing = [];
+  keys.forEach(function (k) {
+    var v = cs.getPropertyValue(k).trim();
+    row('主题变量 ' + k, v === '' ? '缺失' : v, v === '' ? 'bad' : 'ok');
+    if (v === '') missing.push(k);
+  });
+  probeEl.remove();
+  row('结论', missing.length === 0 ? '宿主题变量齐全，面板应能取色' : ('缺 ' + missing.length + ' 个主题变量 → 面板会自动切内置兜底调色板'), missing.length === 0 ? 'ok' : 'bad');
+  row('UA', String(navigator.userAgent || '').slice(0, 150));
+  document.getElementById('probeTable').innerHTML = rows.join('');
+
+  // ── 静态副本：结构与真实面板一致（overlay 根 > 外壳 > 顶栏/tab/内容区）──
+  var rep = document.getElementById('replica');
+  rep.innerHTML = '<div data-dsh-xiaoyu-novel-view="" class="myt-view" style="position:relative;display:block">' +
+    '<div class="myt-shell">' +
+      '<header class="myt-header"><div><h1 class="myt-title">小鱼创作台 <span class="myt-verTag">probe</span></h1><p class="myt-subtitle">静态副本（无 React）</p></div></header>' +
+      '<nav class="myt-tabs"><button class="myt-tab" data-active="true">概览</button><button class="myt-tab">章节</button><button class="myt-tab">角色</button></nav>' +
+      '<div class="myt-body"><div class="myt-page">' +
+        '<div class="myt-card"><div class="myt-cardHead"><h3 class="myt-cardTitle">测试卡片</h3></div>' +
+        '<div style="font-size:14px;color:var(--dsw-alias-label-primary)">测试正文：如果你能看到这一行字，说明面板 CSS 在这台设备上正常工作。' +
+        '下面故意塞一长段，用来验证「能不能滑动」。</div>' +
+        '<div class="myt-muted">' + new Array(40).join('这是一行用来撑高内容区的填充文字，用于验证滚动。 ') + '</div></div>' +
+        '<div class="myt-card"><div class="myt-cardHead"><h3 class="myt-cardTitle">第二张卡</h3></div><div class="myt-muted">滑到这里说明滚动正常。</div></div>' +
+      '</div></div>' +
+    '</div></div>';
+
+  // 量副本真实几何并上报（与面板自检同一条通道）
+  setTimeout(function () {
+    function rb(el) { if (!el) return null; var r = el.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), t: Math.round(r.top), l: Math.round(r.left) }; }
+    var root = rep.querySelector('[data-dsh-xiaoyu-novel-view]');
+    var body = rep.querySelector('.myt-body');
+    var page = rep.querySelector('.myt-page');
+    var card = rep.querySelector('.myt-card');
+    var report = {
+      tag: 'probe-page', shellBranch: 'static-replica',
+      ua: String(navigator.userAgent || '').slice(0, 200),
+      vw: innerWidth, vh: innerHeight,
+      root: rb(root), body: rb(body), page: rb(page), firstChild: { tag: 'DIV', cls: 'myt-card', rect: rb(card) },
+      bodyChildren: body ? body.children.length : -1,
+      pageChildren: page ? page.children.length : -1,
+      bodyStyle: body ? (function (c) { return { display: c.display, flex: c.flex, height: c.height, minHeight: c.minHeight, overflowY: c.overflowY, background: c.backgroundColor, color: c.color }; })(getComputedStyle(body)) : null,
+      css: { href: 'client.css', rules: -1 },
+      missingVars: missing,
+      canScroll: body ? body.scrollHeight > body.clientHeight : false,
+      bodyScrollH: body ? body.scrollHeight : -1,
+      bodyClientH: body ? body.clientHeight : -1
+    };
+    try { fetch('/api/xiaoyu-novel/client-diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report), keepalive: true }); } catch (e) {}
+    var line = document.createElement('div');
+    line.className = 'probe';
+    line.innerHTML = '<h1>副本实测</h1><table>' +
+      '<tr><td>overlay 根</td><td>' + (report.root ? report.root.w + '×' + report.root.h : 'null') + '</td></tr>' +
+      '<tr><td>内容区</td><td>' + (report.body ? report.body.w + '×' + report.body.h : 'null') + '</td></tr>' +
+      '<tr><td>内容区可滚动</td><td class="' + (report.canScroll ? 'ok' : 'bad') + '">' + (report.canScroll ? '能滚（scrollHeight ' + report.bodyScrollH + ' > clientHeight ' + report.bodyClientH + '）' : '不能滚或没有溢出') + '</td></tr>' +
+      '<tr><td>卡片</td><td>' + (report.firstChild.rect ? report.firstChild.rect.w + '×' + report.firstChild.rect.h : 'null') + '</td></tr>' +
+      '</table>';
+    document.body.appendChild(line);
+  }, 400);
+})();
+</script></body></html>`
+          res.writeHead(200, {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+          })
+          res.end(page)
+          return
+        }
+
         // ── 客户端自检上报（3.1.3）：见 lib/client.js collectDiag 注释 ─────────
         // 手机打不开控制台，面板「一片黑」时只能靠它自己把量到的几何与命中元素
         // 发回来。写 <dshHome>/xiaoyu-diag.log（JSONL，按天截断到最近 200 行），

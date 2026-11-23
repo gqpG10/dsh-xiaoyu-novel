@@ -68,23 +68,23 @@ div:has(> div[data-slot="sidebar.footer.action"]) {
 }
 [data-dsh-xiaoyu-novel-view] {
   position: absolute;
-  /* 四边分别写而不是只写 inset 简写：inset 是 Chrome 87 才有的语法，
-     更老的 WebView 会整条丢弃 → 绝对定位容器没有宽高 → 面积 0 →
-     整屏只剩 body 背景色，表现就是「进面板一片黑」。
-     再补 width/height 100% 与最小高，即使四边也没生效，容器照样铺满。 */
+  /* 四边分别写：inset 是 Chrome 87 才有的语法，老 WebView 整条丢弃 →
+     绝对定位容器没有宽高 → 面积 0 → 整屏只剩底色（手机黑屏）。 */
   inset: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   width: 100%;
   height: 100%;
+  /* 确定高度（3.1.4）：百分比高度要父级高度是确定值才解得出来。中栏在打开态
+     被清空子元素，高度可能是 auto，height:100% 便也算成 auto，下游 .myt-shell
+     的 100% 与 .myt-body 的 flex:1 全部失去参照 → 内容区 0 高 → 黑屏 + 划不动。
+     vh 是绝对单位，钉成确定值，后写覆盖前一条。 */
+  height: 100vh;
   min-height: 320px;
+  max-height: 100vh;
+  /* 超出交给内部滚动器，别把内容推到屏外 */
+  overflow: hidden;
   z-index: 10;
   display: none;
-  /* 兜底底色先写：--dsw-alias-bg-base 在旧宿主可能不存在，两层变量都取不到时
-     至少有个确定的深色，不会透出纯黑却看不清任何字。紧跟的 background 简写
-     带变量，宿主有变量时自然覆盖它。 */
   background-color: #17181c;
   background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1));
 }
@@ -141,7 +141,12 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
      .myt-body 的 flex:1 就分不到任何剩余空间，手机上表现成「顶栏和 tab 都在、
      下面整块深色什么都没有」。min-height 让外壳至少占满一屏可视高。 */
   min-height: 100%;
+  /* 3.1.4：父级（overlay 根）现在是确定高度，这里 100% 才真的解得出像素值；
+     flex 布局随后按这个确定高度给 .myt-body 分剩余空间 —— 这是「正文能滚」
+     的前提。max-height 防止内容把外壳顶出可视区（顶出去就滚不到底）。 */
+  max-height: 100%;
   min-width: 0;
+  overflow: hidden;
 }
 .myt-header {
   flex: none;
@@ -181,6 +186,12 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
      也不允许内容区消失。 */
   min-height: 240px;
   overflow-y: auto;
+  /* 触摸滚动（3.1.4）：Android WebView 上要显式声明滚动方向与惯性，否则
+     手指在卡片上拖动会被当成「点按/选择」而整页不动——表现为「正文划不动」。 */
+  overflow-x: auto;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 16px 24px 32px;
 }
 /* 宽度随宿主中栏自适应：不设上限（980 上限已去，宽屏撑满）；min-width
@@ -1402,7 +1413,7 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
 .myt-view { zoom: var(--myt-zoom, 1); }
 /* 实例门户根：overlay 形态下弹层/Toast 的 absolute 定位基准（MaskPortal portal
    进来）；右侧栏形态的根自带同类规则（见 .myt-viewTab）。 */
-.myt-viewRoot { position: relative; height: 100%; min-height: 100%; }
+.myt-viewRoot { position: relative; height: 100%; min-height: 100%; max-height: 100%; overflow: hidden; }
 /* 右侧栏 tab 形态的实例根：铺满停靠格（不带 data-dsh-xiaoyu-novel-view 属性，
    不受 overlay 的 absolute+display:none 影响；.myt-view 出 zoom 与隔离）。 */
 .myt-viewTab { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; width: 100%; box-sizing: border-box; padding: 14px 16px; container-type: inline-size; }
@@ -1431,7 +1442,7 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
   .myt-viewTab .myt-outlineHead { flex-wrap: wrap; row-gap: 2px; } /* 章纲头：标题/字数/编辑/删除/箭头可换行不互挤 */
   .myt-viewTab .myt-dimGrid { grid-template-columns: 1fr; } /* 五维卡单列：160px 双列太挤 */
 }
-.myt-viewRoot { position: relative; height: 100%; min-height: 100%; }
+.myt-viewRoot { position: relative; height: 100%; min-height: 100%; max-height: 100%; overflow: hidden; }
 .myt-settingsMask {
   position: absolute;
   inset: 0;
@@ -1746,6 +1757,9 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
      按内容自然长、整块 readerBody 顺读滚动；字号抬到 14/24 是「读书」
      不是「看字」。 */
   .myt-chapterBody { max-height: var(--myt-box-h); font-size: 14px; line-height: 24px; padding: 10px 12px; }
+  /* 触摸滚动（3.1.4）：手机上正文是「框内滚」，缺这几行手指拖不动 →
+     用户看到的就是「正文无法滑动」。单独成条，不动上面的定高写法。 */
+  .myt-chapterBody { overflow-y: auto; touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   /* 正文面板不许被 flex 挤扁：.myt-bodyPanel 有 overflow:hidden，收缩后
      框被裁成两行（0.4.7 的手机实拍）。改成按内容定高，框内自己滑。 */
   .myt-viewTab .myt-bodyPanel { flex: 0 0 auto; }
@@ -1911,6 +1925,9 @@ html[data-dsh-xiaoyu-novel-active]:not([data-dsh-mnemon-active]):not([data-dsh-t
      按内容自然长、整块 readerBody 顺读滚动；字号抬到 14/24 是「读书」
      不是「看字」。 */
   .myt-chapterBody { max-height: var(--myt-box-h); font-size: 14px; line-height: 24px; padding: 10px 12px; }
+  /* 触摸滚动（3.1.4）：手机上正文是「框内滚」，缺这几行手指拖不动 →
+     用户看到的就是「正文无法滑动」。单独成条，不动上面的定高写法。 */
+  .myt-chapterBody { overflow-y: auto; touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   /* 正文面板不许被 flex 挤扁：.myt-bodyPanel 有 overflow:hidden，收缩后
      框被裁成两行（0.4.7 的手机实拍）。改成按内容定高，框内自己滑。 */
   .myt-viewTab .myt-bodyPanel { flex: 0 0 auto; }
