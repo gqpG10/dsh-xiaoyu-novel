@@ -43,7 +43,9 @@ test('折叠方框：带边框 + 框内滚动 + 不带走整页', () => {
   assert.match(body[1], /max-height: var\(--myt-box-h\)/, '框高没跟正文/章纲同一令牌')
   assert.match(body[1], /overflow-y: auto/, '框内没开纵向滚动')
   assert.match(body[1], /overscroll-behavior: contain/, '框内滚到底会带着整页跑')
-  assert.match(body[1], /border: 1px solid var\(--dsw-alias-border-l1\)/, '方框没边框')
+  // 允许 var() 带后备值（3.1.6：宿主缺主题变量的设备要靠后备值才画得出边框）。
+  // 断言的是「用了这个令牌」，不是「令牌后面不许写后备值」。
+  assert.match(body[1], /border: 1px solid var\(--dsw-alias-border-l1(?:,[^)]*)?\)/, '方框没边框')
   assert.match(body[1], /border-radius:/, '方框没圆角')
 })
 
