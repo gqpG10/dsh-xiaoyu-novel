@@ -1691,6 +1691,29 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        // ── 独立版面板（零依赖 HTML，现读磁盘）────────────────────────────────
+        // 主面板在真机上始终不可见（排查多轮未定位，且与插件版本无关）。这个页面
+        // 不加载宿主 bundle、不加载 React、不加载 base.css，样式全部内联，是唯一
+        // 在真机上被验证「确实能显示」的面板。路由现读 lib/standalone-panel.html，
+        // 改完刷新即生效（与 client.css 同款，不必重启宿主）。
+        if (route === 'panel' && req.method === 'GET') {
+          let html = ''
+          try {
+            html = await readFile(new URL('./lib/standalone-panel.html', import.meta.url), 'utf8')
+          } catch { /* 下面按缺失处理 */ }
+          if (html === '') {
+            json(res, 500, { ok: false, error: '独立版面板文件缺失（lib/standalone-panel.html）' })
+            return
+          }
+          res.writeHead(200, {
+            'content-type': 'text/html; charset=utf-8',
+            'content-length': Buffer.byteLength(html),
+            'cache-control': 'no-store',
+          })
+          res.end(html)
+          return
+        }
+
         if (route === 'update-check' && req.method === 'GET') {
           // 版本源优先级（0.18.0）：配了 GitHub 仓库就只认它——私有库没有 npm
           // 通路，老逻辑跑两轮 registry 再报网络错，纯浪费时间。仓库来源见
