@@ -23,11 +23,15 @@ test('入口成对注册：main.key 与 panellist.id 同为 xiaoyu-novel-creator
   assert.match(source, /selectPanel === "function"/)
 })
 
-test('面板正文：包 InstanceScope/.myt-view，关闭回对话面板', () => {
+test('面板正文：iframe 挂独立版面板（3.2.1 起黑屏源 PageShell 不再渲染）', () => {
   assert.match(source, /function PanelBody\(\)/)
-  assert.match(source, /h\(InstanceScope, \{ className: "myt-viewRoot" \}/)
-  assert.match(source, /className: "myt-view myt-viewTab"/)
-  assert.match(source, /layout\.selectPanel\(null\)/)
+  // 3.2.1：三种形态（main 槽/overlay/tab）的正文一律 iframe 挂 /api/xiaoyu-novel/panel。
+  // 真机实测 PageShell（React 主面板）全黑且与版本无关，独立版是唯一被验证能显示的。
+  assert.match(source, /var STANDALONE_URL = "\/api\/xiaoyu-novel\/panel"/)
+  const frames = (source.match(/src: STANDALONE_URL/g) || []).length
+  assert.ok(frames >= 3, 'main 槽/overlay/右侧栏 tab 三处都要 iframe 挂独立版，实际 ' + frames)
+  // 黑屏源必须彻底退出创作台主面板的渲染（ReaderTabBody 的阅读页除外）
+  assert.doesNotMatch(source, /h\(PageShell/, 'PageShell 不许再被渲染（真机黑屏本体）')
 })
 
 test('注册失败退回底部入口 + 中栏 overlay（老宿主不丢功能）', () => {
