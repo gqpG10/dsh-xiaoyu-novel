@@ -13,10 +13,11 @@
   .brand{font-size:15px;font-weight:700;white-space:nowrap}
   .badge{font-size:11px;color:#8d939c;border:1px solid #474d56;border-radius:999px;padding:0 7px;white-space:nowrap}
   .grow{flex:1 1 auto}
-  select,button,input{font:inherit;font-size:13px;color:#e9eaec;background:#23262c;border:1px solid #3d424a;
+  select,button,input,textarea{font:inherit;font-size:13px;color:#e9eaec;background:#23262c;border:1px solid #3d424a;
     border-radius:8px;padding:5px 9px;min-height:32px}
   button:active{background:#2e333a}
   button.pri{background:#4b8bf5;border-color:#4b8bf5;color:#fff}
+  button.warn{background:#8a3b3b;border-color:#8a3b3b;color:#fff}
   button.sm{min-height:26px;padding:2px 8px;font-size:12px}
   select{max-width:46vw}
   nav.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid #33373f;background:#15181c}
@@ -31,6 +32,9 @@
   .v{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
   .muted{color:#8d939c;font-size:12.5px}
   .pill{display:inline-block;font-size:11px;border:1px solid #474d56;border-radius:999px;padding:0 6px;margin-left:5px;color:#b9bdc4;white-space:nowrap}
+  .pill.good{color:#3fbf7f;border-color:#2c6b4f}
+  .pill.bad{color:#ff8f8f;border-color:#7a3a3a}
+  .pill.mid{color:#e5c063;border-color:#6f5c2a}
   .chap{display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;background:transparent;border:none;
     border-bottom:1px solid #24272d;border-radius:0;padding:9px 4px;color:#e9eaec;min-height:42px}
   .chap .no{color:#8d939c;font-size:12px;flex:none;min-width:3.2em}
@@ -38,10 +42,19 @@
   .chap .w{color:#8d939c;font-size:11px;flex:none}
   .body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.85;background:#1d1f24;
     border:1px solid #34383f;border-radius:12px;padding:14px}
+  textarea.editor{width:100%;min-height:46vh;font-size:15px;line-height:1.8;padding:12px;white-space:pre-wrap;resize:vertical}
+  textarea.small{min-height:180px;font-size:13px}
   .err{background:#2a1a1c;border:1px solid #ef5b5b;color:#ffb4b4;border-radius:10px;padding:10px 12px;margin:0 0 10px}
   .ok{color:#3fbf7f}
   .note{font-size:12px;color:#8d939c;padding:4px 2px;min-height:18px}
+  .score{font-size:22px;font-weight:700}
+  .flagrow{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #24272d}
+  .flagrow .fx{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;font-size:13px}
   a{color:#6fa8ff}
+  canvas{width:100%;border:1px solid #34383f;border-radius:12px;background:#14161a;touch-action:manipulation}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+  .cbody{max-height:62vh;overflow-y:auto}
+  .foldbtn{margin-left:auto;background:transparent;border:none;color:#8d939c;min-height:22px;padding:0 6px;font-size:12px;flex:none}
 </style></head>
 <body>
 
@@ -53,6 +66,7 @@
   <button id="btnReload" type="button">刷新</button>
   <button id="btnCheck" type="button">检测更新</button>
   <button id="btnDiag" type="button" class="pri">自检</button>
+  <span id="upmsg" style="font-size:11.5px;color:#8d939c;flex:1 1 100%;min-width:0;overflow-wrap:anywhere"></span>
 </div>
 
 <nav class="tabs" id="tabs"></nav>
@@ -60,18 +74,35 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.2.0';
+var BUILD = '3.5.5';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
-  var TABS = [['overview','概览'],['chapters','章节'],['characters','角色'],['foreshadows','伏笔'],
-              ['relations','关系'],['timeline','时间线'],['world','设定'],['index','索引'],['tools','工具']];
-  var S = { ws: '', data: null, tab: 'overview', reader: null, err: '', q: '' };
+  var TABS = [['overview','概览'],['project','项目'],['chapters','章节'],['gate','门禁'],['audit','体检'],
+              ['characters','角色'],['foreshadows','伏笔'],['relations','关系'],['timeline','时间线'],
+              ['world','设定'],['index','索引'],['style','风格'],
+              ['search','搜索'],['tools','工具'],['history','版本']];
+  var STATUS_LABEL = { pending:'待写', writing:'写作中', review:'待审', accepted:'已定稿' };
+  var FORE_LABEL = { planted:'已铺垫', progressing:'推进中', resolved:'已回收', abandoned:'已放弃' };
+  var PHASES = ['idea','setting','outline','writing','review','consistency','export'];
+  var PHASE_LABEL = { idea:'点子', setting:'设定', outline:'大纲', writing:'写作', review:'审校', consistency:'一致性', export:'导出' };
+  var MODES = ['ai-draft','co-write','author-draft'];
+  var MODE_LABEL = { 'ai-draft':'AI 初稿', 'co-write':'人机合写', 'author-draft':'本人初稿' };
+  var HOOK_LABEL = { question:'问句钩子', unfinished:'未完待续', turn:'转折钩子', short:'短句收束', plain:'平收（无钩）', empty:'空章' };
+  var S = { ws:'', data:null, tab:'overview', reader:null, err:'', q:'',
+            gates:null, gatesErr:'', gateOne:null,
+            audit:null, check:null, auditBusy:false,
+            style:null, presets:null,
+            proj:null,
+            trash:null, ledger:null, slim:null,
+            git:null, gitLog:null, versionsFile:'', versions:null,
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
   function note(t) { $('note').textContent = t || ''; }
+  function confirmAct(msg) { return window.confirm(msg); }
 
   function get(path, params) {
     var qs = [];
@@ -87,8 +118,11 @@ var BUILD = '3.2.0';
       }); });
   }
   function postJson(path, body) {
-    return fetch(API + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
-      .then(function (r) { return r.json(); });
+    return fetch(API + path, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json().then(function (d) {
+        if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        return d;
+      }); });
   }
   function copy(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -104,10 +138,35 @@ var BUILD = '3.2.0';
       var ok = document.execCommand('copy'); ta.remove(); return ok;
     } catch (e) { return false; }
   }
+  function humanColor(g) {
+    if (!g || !g.ok || typeof g.human !== 'number') return '';
+    var pm = (S.gates && S.gates.passMark) || 60;
+    return g.human >= pm ? 'good' : (g.human >= pm - 15 ? 'mid' : 'bad');
+  }
+  function wsQuery() { return { path: S.ws }; }
+
+  /* 今日新增字数：progress 接口（门禁/体检跑过才有记账）。 */
+  function todayWords() {
+    if (!S.progress) return '';
+    if (S.progress.delta != null) {
+      var dl = S.progress.delta;
+      return (dl > 0 ? '+' : '') + dl + ' 字';
+    }
+    return '今天还没记录（跑一次门禁或体检就开始记账）';
+  }
+
+  /* ── 本地缓存：重进面板秒开，后台静默刷新 ── */
+  var CACHE_PREFIX = 'xiaoyu.cache.';
+  function cacheGet(key) {
+    try { var t = localStorage.getItem(CACHE_PREFIX + key); return t ? JSON.parse(t) : null; } catch (e) { return null; }
+  }
+  function cacheSet(key, val) {
+    try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(val)); } catch (e) {}
+  }
 
   function tabBar() {
     $('tabs').innerHTML = TABS.map(function (t) {
-      var cur = (!S.reader && S.tab === t[0]) ? 'true' : 'false';
+      var cur = (!S.reader && !S.genEd && S.tab === t[0]) ? 'true' : 'false';
       return '<button type="button" data-tab="' + t[0] + '" aria-current="' + cur + '">' + t[1] + '</button>';
     }).join('');
   }
@@ -119,21 +178,81 @@ var BUILD = '3.2.0';
     return out || '<div class="muted">（无）</div>';
   }
 
+  /* ── 门禁批量（后台加载，章节列表/门禁页共用） ── */
+  /* 门禁批量瘦身：只留面板要用的字段（heat/flags 明细现场拉单章），缓存体积小一个量级。 */
+  function compactGates(d) {
+    var gates = {};
+    Object.keys(d.gates || {}).forEach(function (f) {
+      var g = d.gates[f];
+      gates[f] = (g && g.ok) ? { ok: true, human: g.human, words: g.words } : { ok: false, reason: (g && g.reason) || '?' };
+    });
+    return { ok: true, python: d.python, gates: gates, total: d.total, passMark: d.passMark, failed: d.failed, words: d.words, at: Date.now() };
+  }
+  function loadGates() {
+    if (!S.ws) return;
+    var ck = 'gates.' + S.ws;
+    var cached = cacheGet(ck);
+    if (cached && !S.gates) {
+      S.gates = cached;
+      if (S.tab === 'chapters' || S.tab === 'gate' || S.tab === 'overview') render();
+    }
+    get('gate', wsQuery()).then(function (d) {
+      var c = compactGates(d);
+      S.gates = c; S.gatesErr = '';
+      cacheSet(ck, c);
+      if (S.tab === 'chapters' || S.tab === 'gate' || S.tab === 'overview' || S.reader) render();
+    }).catch(function (e) { S.gatesErr = String((e && e.message) || e); });
+  }
+
+  function ensureSetup() {
+    if (S.setup) return;
+    get('setup', wsQuery()).then(function (d) { S.setup = d; if (S.tab === 'overview') render(); }).catch(function () { S.setup = { ok:false }; });
+  }
+  function loadCast(file) {
+    get('chapter-cast', { path: S.ws, file: file }).then(function (d) {
+      S.cast = d;
+      if (S.reader && S.reader.file === file) render();
+    }).catch(function () { S.cast = null; });
+  }
+
   /* ── 概览 ── */
   function vOverview(d) {
     var p = d.project || {}, ch = d.chapters || [], words = 0, by = {};
     ch.forEach(function (c) { words += Number(c.words || 0); var s = c.status || '未标'; by[s] = (by[s] || 0) + 1; });
-    var dist = Object.keys(by).map(function (k) { return k + ' ' + by[k]; }).join(' · ');
-    return '<div class="card"><h3>书稿</h3>' + rows([
+    var dist = Object.keys(by).map(function (k) { return STATUS_LABEL[k] ? STATUS_LABEL[k] + ' ' + by[k] : k + ' ' + by[k]; }).join(' · ');
+    var gate = '';
+    if (S.gates) {
+      var scored = Object.keys(S.gates.gates || {}).map(function (k) { return S.gates.gates[k]; }).filter(function (g) { return g && g.ok; });
+      var avg = scored.length ? Math.round(scored.reduce(function (a, g) { return a + g.human; }, 0) / scored.length * 10) / 10 : null;
+      gate = '<div class="card"><h3>门禁总览 <span class="badge">及格线 ' + esc(S.gates.passMark) + '</span></h3>' + rows([
+        ['人味均值', avg == null ? '' : avg + ' 分'],
+        ['不及格章', String(S.gates.failed != null ? S.gates.failed : '?') + ' / ' + (S.gates.total || 0)],
+        ['总字数', S.gates.words != null ? S.gates.words + ' 字' : '']
+      ]) + '</div>';
+    }
+    ensureSetup();
+    var setupCard = '';
+    if (S.setup && S.setup.items) {
+      setupCard = '<div class="card"><h3>开书清单 <span class="badge">' + S.setup.done + ' / ' + S.setup.total + '</span>' +
+        (S.setup.complete ? '<span class="pill good">齐了</span>' : '') + '</h3>' +
+        S.setup.items.map(function (it) {
+          return '<div class="row"><span class="k">' + esc(it.label) + '</span><span class="v">' +
+            (it.done ? '<span class="pill good">✓</span>' : '<span class="pill bad">缺</span>') +
+            (it.detail ? ' <span class="muted">' + esc(it.detail) + '</span>' : '') +
+            (!it.done && it.hint ? ' <span class="muted">' + esc(it.hint) + '</span>' : '') + '</span></div>';
+        }).join('') + '</div>';
+    }
+    return setupCard + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
-      ['阶段', p.phase], ['模式', p.mode], ['连载', p.serial], ['简介', p.description]
+      ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
     ]) + '</div>' +
     '<div class="card"><h3>统计</h3>' + rows([
       ['章节', ch.length + ' 章'], ['总字数', words + ' 字'], ['状态分布', dist],
+      ['今日新增', todayWords()],
       ['角色', (d.characters || []).length], ['伏笔', (d.foreshadows || []).length],
       ['关系', (d.relations || []).length], ['时间线', (d.timeline || []).length],
       ['设定', (d.world || []).length], ['线索', (d.clues || []).length], ['记忆', (d.memories || []).length]
-    ]) + '</div>' +
+    ]) + '</div>' + gate +
     ((d.warnings || []).length ? '<div class="card"><h3>体检提示 <span class="badge">' + d.warnings.length + '</span></h3>' +
       d.warnings.map(function (w) {
         return '<div class="row"><span class="v">' + esc(typeof w === 'string' ? w : (w && w.message) || JSON.stringify(w)) + '</span></div>';
@@ -141,6 +260,12 @@ var BUILD = '3.2.0';
   }
 
   /* ── 章节 ── */
+  function gatePill(file) {
+    if (!S.gates || !S.gates.gates) return '';
+    var g = S.gates.gates[file];
+    if (!g || !g.ok) return '';
+    return '<span class="pill ' + humanColor(g) + '">人味 ' + g.human + '</span>';
+  }
   function vChapters(d) {
     var list = (d.chapters || []).slice();
     if (!list.length) return '<div class="card"><div class="muted">还没有章节</div></div>';
@@ -150,74 +275,500 @@ var BUILD = '3.2.0';
              String(c.summary || '').toLowerCase().indexOf(q) >= 0 ||
              String(c.file || '').toLowerCase().indexOf(q) >= 0;
     });
-    return '<div class="card"><h3>共 ' + list.length + ' 章</h3>' +
+    return '<div class="card"><h3>共 ' + list.length + ' 章' +
+      (S.gates && S.gates.gates ? '<span class="badge">及格线 ' + esc(S.gates.passMark) + '</span>' : '') + '</h3>' +
       '<input id="q" placeholder="搜标题 / 摘要 / 文件名" value="' + esc(S.q) + '" style="width:100%;margin-bottom:8px">' +
       list.map(function (c) {
         return '<button type="button" class="chap" data-file="' + esc(c.file) + '">' +
           '<span class="no">第' + esc(c.num != null ? c.num : '?') + '章</span>' +
           '<span class="ti">' + esc(c.title || c.file) +
-            (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') +
+            (c.status ? '<span class="pill">' + esc(STATUS_LABEL[c.status] || c.status) + '</span>' : '') +
+            gatePill(c.file) +
             (c.summary ? '<div class="muted">' + esc(String(c.summary).slice(0, 90)) + '</div>' : '') +
           '</span><span class="w">' + esc(c.words || 0) + '</span></button>';
       }).join('') + '</div>';
   }
 
-  /* ── 阅读 ── */
-  function vReader() {
-    var r = S.reader;
-    if (r.loading) return '<div class="note">正在读取 ' + esc(r.file) + ' …</div>';
-    if (r.err) return '<div class="err">读取失败：' + esc(r.err) + '</div>';
-    var words = String(r.body || '').replace(/\s/g, '').length;
-    return '<div class="card"><h3>' + esc(r.title || r.file) + '<span class="badge">' + words + ' 字</span></h3>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button type="button" id="btnBack" class="sm">← 章节列表</button>' +
-        '<button type="button" id="btnPrev" class="sm">上一章</button>' +
-        '<button type="button" id="btnNext" class="sm">下一章</button>' +
-        '<button type="button" id="btnCopy" class="sm">复制全章</button>' +
-      '</div>' +
-      (r.outline ? '<div class="card" style="margin-top:10px"><h3>章纲</h3><div class="muted" style="white-space:pre-wrap">' +
-        esc(String(r.outline).slice(0, 1200)) + '</div></div>' : '') +
-      '</div><div class="body" id="bodyText">' + esc(r.body || '（本章正文为空）') + '</div>';
+  /* ── 门禁总览 ── */
+  function vGate() {
+    if (S.gatesErr) return '<div class="err">门禁读取失败：' + esc(S.gatesErr) + '</div>';
+    if (!S.gates) return '<div class="note">正在计算门禁分…（全本逐章分析，稍等几秒）</div>';
+    var names = Object.keys(S.gates.gates || {}).sort(function (a, b) {
+      var ga = S.gates.gates[a], gb = S.gates.gates[b];
+      return (ga && ga.ok ? ga.human : -1) - (gb && gb.ok ? gb.human : -1);
+    });
+    var meta = {};
+    (S.data && S.data.chapters || []).forEach(function (c) { meta[c.file] = c; });
+    var passRow = '<div class="row"><span class="k">及格线</span><span class="v">' +
+      '<input id="pmInput" type="number" min="0" max="100" value="' + esc(S.gates.passMark) + '" style="width:5em"> ' +
+      '<button type="button" id="pmSave" class="sm">保存</button></span></div>';
+    var seq = (S.data && S.data.chapters || []).map(function (c) { return c.file; })
+      .filter(function (f) { var g = S.gates.gates[f]; return g && g.ok; });
+    var bars = '<div style="display:flex;align-items:flex-end;gap:1px;height:72px;margin:6px 0">' + seq.map(function (f) {
+      var g = S.gates.gates[f];
+      var col = humanColor(g);
+      var bg = col === 'good' ? '#3fbf7f' : (col === 'mid' ? '#e5c063' : '#ef5b5b');
+      return '<div title="' + esc((meta[f] && meta[f].title) || f) + '：' + g.human + '" style="flex:1 1 0;min-width:2px;height:' + Math.max(4, Math.round(g.human)) + '%;background:' + bg + ';border-radius:2px"></div>';
+    }).join('') + '</div><div class="muted">逐章人味走势（绿≥及格线 · 黄接近 · 红不及格）</div>';
+    return '<div class="card"><h3>门禁总览 <span class="badge">及格线 ' + esc(S.gates.passMark) + '</span></h3>' + rows([
+      ['状态', S.gates.python === false ? 'python3 缺失，分数不可用' : '正常'],
+      ['章节', (S.gates.total || 0) + ' 章'],
+      ['不及格', (S.gates.failed || 0) + ' 章'],
+      ['总字数', S.gates.words != null ? S.gates.words + ' 字' : ''],
+      ['说明', '点任一章进入阅读页看嫌疑句与一键修']
+    ]) + passRow + '</div>' +
+    '<div class="card"><h3>人味走势</h3>' + bars + '</div>' +
+    '<div class="card"><h3>按人味分排序（低在前）</h3>' +
+    names.map(function (f) {
+      var g = S.gates.gates[f], c = meta[f] || {};
+      var col = humanColor(g);
+      var score = g && g.ok ? '<span class="pill ' + col + '">人味 ' + g.human + '</span>' : '<span class="pill">无分（' + esc((g && g.reason) || '?') + '）</span>';
+      return '<button type="button" class="chap" data-file="' + esc(f) + '">' +
+        '<span class="no">第' + esc(c.num != null ? c.num : '?') + '章</span>' +
+        '<span class="ti">' + esc(c.title || f) + '</span><span class="w">' + score + '</span></button>';
+    }).join('') + '</div>';
   }
 
-  /* ── 其它分区 ── */
+  function bindGate() {
+    var pm = $('pmSave');
+    if (pm) pm.addEventListener('click', function () {
+      var v = Number(($('pmInput') || {}).value);
+      if (!(v >= 0 && v <= 100)) { note('及格线要 0-100 的数字'); return; }
+      postJson('gate-config', { path: S.ws, passMark: v }).then(function () {
+        note('及格线已存为 ' + v); S.gates = null; loadGates();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+  }
+
+  /* ── 体检 ── */
+  function ensureAudit() {
+    if (S.audit || S.auditBusy) return;
+    S.auditBusy = true;
+    get('check', wsQuery()).then(function (d) { S.check = d; render(); }).catch(function () { S.check = { ok:true, problems:[] }; });
+    get('audit', wsQuery()).then(function (d) { S.audit = d; S.auditBusy = false; render(); })
+      .catch(function (e) { S.audit = { ok:false, error: String((e && e.message) || e) }; S.auditBusy = false; render(); });
+  }
+  function vAudit() {
+    ensureAudit();
+    var out = '';
+    if (S.check && S.check.problems) {
+      var ps = S.check.problems;
+      out += '<div class="card"><h3>静态体检 <span class="badge">' + ps.length + ' 项</span></h3>' +
+        (ps.length ? ps.map(function (p) {
+          var col = p.level === 'error' ? 'bad' : (p.level === 'warn' ? 'mid' : '');
+          return '<div class="row"><span class="k"><span class="pill ' + col + '">' + esc(p.level || '?') + '</span></span>' +
+            '<span class="v">' + esc((p.file ? p.file + '：' : '') + (p.message || '')) + '</span></div>';
+        }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
+    }
+    out += '<div class="card"><h3>全书体检' + (S.auditBusy ? '<span class="badge">计算中…</span>' : '') + '</h3>' +
+      '<div class="btnrow"><button type="button" id="btnAuditReport" class="sm">报告落盘到 reports/</button></div>';
+    if (!S.audit) out += '<div class="muted">' + (S.auditBusy ? '跨章重复 / 出场 / 章纲兑现分析中…' : '') + '</div>';
+    else if (S.audit.ok === false) out += '<div class="err">' + esc(S.audit.error || '失败') + '</div>';
+    else {
+      var a = S.audit, t = a.totals || {}, r = a.rhythm || {};
+      out += rows([
+        ['章节', (t.chapters || 0) + ' 章'], ['总字数', t.words != null ? t.words + ' 字' : ''],
+        ['人味均值', t.avgHuman != null ? t.avgHuman + ' 分' : ''],
+        ['节奏', '均 ' + (r.avgWords || 0) + ' 字 · 离群 ' + ((r.outliers || []).length) + ' 章'],
+        ['章末钩子', '平收 ' + ((a.hooks && a.hooks.plain) || 0) + ' 章' + ((a.hooks && a.hooks.maxStreak) ? ' · 最长连续平收 ' + a.hooks.maxStreak + ' 章' : '')]
+      ]);
+      if ((a.repeats || []).length) {
+        out += '<h3 style="margin-top:10px">跨章重复片段 ' + a.repeats.length + '</h3>' + a.repeats.slice(0, 20).map(function (rp) {
+          return '<div class="row"><span class="v">' + esc(String(rp.text || '').slice(0, 120)) +
+            '<span class="pill">出现 ' + esc(rp.count) + ' 次</span><span class="muted"> ' + esc((rp.chapters || []).join('、')) + '</span></span></div>';
+        }).join('');
+      }
+      if ((a.cast || []).length) {
+        var miss = a.cast.filter(function (c) { return c.missing; });
+        if (miss.length) {
+          out += '<h3 style="margin-top:10px">全书 0 出场角色 ' + miss.length + '</h3>' + miss.map(function (c) {
+            return '<div class="row"><span class="v">' + esc(c.name || c.file) +
+              (c.planned ? '<span class="pill">计划登场 ' + esc(c.debut) + '</span>' : '') + '</span></div>';
+          }).join('');
+        }
+      }
+      if ((a.outlines || []).length) {
+        out += '<h3 style="margin-top:10px">章纲未兑现 ' + a.outlines.length + ' 章</h3>' + a.outlines.slice(0, 30).map(function (o) {
+          return '<div class="row"><span class="k">' + esc(o.file) + '</span><span class="v">' +
+            esc((o.promised || []).slice(0, 4).join('；')) +
+            ' <button type="button" class="sm onNote" data-file="' + esc(o.file) + '">记待补备忘</button></span></div>';
+        }).join('');
+      }
+    }
+    return out + '</div>';
+  }
+
+  function bindAudit() {
+    var ar = $('btnAuditReport');
+    if (ar) ar.addEventListener('click', function () {
+      note('生成体检报告…');
+      postJson('audit-report', { path: S.ws }).then(function (d) {
+        note('报告已落盘：' + (d.rel || d.file || '?'));
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.onNote'), function (b) {
+      b.addEventListener('click', function () {
+        var file = b.getAttribute('data-file');
+        var t = window.prompt('给 ' + file + ' 记一条「待补」备忘：', '');
+        if (t == null || t.trim() === '') return;
+        postJson('outline-note', { path: S.ws, file: file, note: t }).then(function () { note('已记到章纲'); })
+          .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+  }
+
+  /* ── 关系维护（去重 / 自动补全） ── */
+  function vRelMaint() {
+    var out = '<div class="card"><h3>关系维护</h3><div class="btnrow">' +
+      '<button type="button" id="btnDedupe" class="sm">重复配对预演（只读）</button>' +
+      '<button type="button" id="btnAutofill" class="sm">自动补全预演（只读）</button></div>';
+    if (S.dedupe) {
+      out += rows([['合并前', S.dedupe.before + ' 条'], ['合并后', S.dedupe.after + ' 条'], ['可合并组', (S.dedupe.merged || 0) + ' 组']]);
+      (S.dedupe.groups || []).forEach(function (g) {
+        out += '<div class="row"><span class="k">' + esc(g.key) + '</span><span class="v">' +
+          esc(g.count + ' 条并行边 · 类型 ' + (g.type || '?') + ' · 强度 ' + (g.intensity != null ? g.intensity : '?') + ' · 描述共 ' + (g.descriptionLength || 0) + ' 字') + '</span></div>';
+      });
+      if (S.dedupe.merged) out += '<div class="btnrow"><button type="button" id="btnDedupeApply" class="sm warn">确认合并（写前自动备份 relations.yml）</button></div>';
+      else out += '<div class="muted ok">没有重复配对 ✓</div>';
+    }
+    if (S.autofill) {
+      var list = S.autofill.starts || S.autofill.proposals || S.autofill.patches || S.autofill.items || [];
+      out += '<h3 style="margin-top:10px">自动补全候选 ' + list.length + ' 条</h3>';
+      out += list.slice(0, 50).map(function (p) {
+        return '<div class="row"><span class="v">' + esc(JSON.stringify(p).slice(0, 160)) + '</span></div>';
+      }).join('') || '<div class="muted ok">没有可补的候选 ✓</div>';
+      if (list.length) out += '<div class="btnrow"><button type="button" id="btnAutofillApply" class="sm warn">全部写入关系账（先过目再点）</button></div>';
+    }
+    return out + '</div>';
+  }
+  function bindRelMaint() {
+    var rc = $('relChap');
+    if (rc) {
+      var onPick = function () {
+        S.relChap = rc.value;
+        S.graphSel = -1;
+        if (!S.relChap) { S.castFilter = null; render(); return; }
+        note('查本章出场名单…');
+        get('chapter-cast', { path: S.ws, file: S.relChap }).then(function (d) {
+          /* 状态快照的关系两端是「人名」（不是 slug）：直接按人名过滤；顺带带上 slug 兼容别家电书。 */
+          var byName = {};
+          ((S.data && S.data.characters) || []).forEach(function (c) {
+            if (c.name && c.file) byName[c.name] = String(c.file).replace(/\.md$/, '');
+          });
+          S.castFilter = ((d && d.names) || []).slice();
+          ((d && d.names) || []).forEach(function (nm) {
+            var s = byName[nm];
+            if (s && S.castFilter.indexOf(s) < 0) S.castFilter.push(s);
+          });
+          render();
+          note('本章 ' + S.castFilter.length + ' 名角色上图（映射自 ' + (((d && d.names) || []).length) + ' 个出场名）');
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      };
+      rc.addEventListener('change', onPick);
+      rc.addEventListener('input', onPick);
+    }
+    var d = $('btnDedupe');
+    if (d) d.addEventListener('click', function () {
+      note('重复配对预演…');
+      get('relations-dedupe', wsQuery()).then(function (r) { S.dedupe = r; render(); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var da = $('btnDedupeApply');
+    if (da) da.addEventListener('click', function () {
+      if (!confirmAct('合并 ' + ((S.dedupe && S.dedupe.merged) || 0) + ' 组重复关系？描述按章拼接、强度取最大，写前自动备份。')) return;
+      note('合并中…');
+      postJson('relations-dedupe', { path: S.ws }).then(function (r) {
+        note('已合并，剩 ' + (r.kept != null ? r.kept : '?') + ' 条');
+        S.dedupe = null; loadState();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var a = $('btnAutofill');
+    if (a) a.addEventListener('click', function () {
+      note('自动补全预演…');
+      get('relations-autofill', wsQuery()).then(function (r) { S.autofill = r; render(); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var aa = $('btnAutofillApply');
+    if (aa) aa.addEventListener('click', function () {
+      var list = (S.autofill && (S.autofill.starts || S.autofill.proposals || S.autofill.patches || S.autofill.items)) || [];
+      if (!confirmAct('把 ' + list.length + ' 条候选写入关系账？建议先逐条过目。')) return;
+      postJson('relations-autofill', { path: S.ws, patches: list }).then(function () {
+        note('已写入'); S.autofill = null; loadState();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+  }
+
+  /* ── 全书搜索 / 替换 ── */
+  function vSearch() {
+    var r = S.searchRes;
+    var out = '<div class="card"><h3>全书搜索</h3>' +
+      '<input id="sq" placeholder="多词空格分隔，交集匹配（正文 + 章纲）" value="' + esc(S.searchQ) + '" style="width:100%">' +
+      '<div class="btnrow"><button type="button" id="sqBtn" class="sm pri">搜索</button></div>';
+    if (r) {
+      out += '<div class="muted">' + (r.matches || []).length + ' 处命中 · ' + esc(r.files || 0) + ' 个文件' + (r.truncated ? ' · 超出上限已截断' : '') + '</div>';
+      out += (r.matches || []).map(function (m) {
+        return '<button type="button" class="chap" data-file="' + esc(m.file) + '">' +
+          '<span class="no">' + esc(m.kind === 'outline' ? '章纲' : '正文') + '</span>' +
+          '<span class="ti">' + esc(m.file) + '<span class="pill">L' + esc(m.line) + '</span>' +
+          '<div class="muted">' + esc(m.text) + '</div></span></button>';
+      }).join('');
+    }
+    out += '</div>';
+    out += '<div class="card"><h3>全书替换（危险操作）</h3>' +
+      '<input id="rpFind" placeholder="查找内容" style="width:100%;margin-bottom:6px">' +
+      '<input id="rpTo" placeholder="替换为" style="width:100%">' +
+      '<div class="btnrow"><button type="button" id="rpPreview" class="sm">先预览命中</button>' +
+      '<button type="button" id="rpApply" class="sm warn">确认替换全书</button></div>' +
+      '<div class="muted">逐章写入并自动留快照；一定先预览确认。</div></div>';
+    return out;
+  }
+  function bindSearch() {
+    var b = $('sqBtn');
+    if (b) b.addEventListener('click', function () {
+      S.searchQ = ($('sq') || {}).value || '';
+      if (!S.searchQ.trim()) { note('先输入要搜的词'); return; }
+      note('搜索中…');
+      get('search', { path: S.ws, q: S.searchQ }).then(function (r) { S.searchRes = r; render(); })
+        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var rp = $('rpPreview');
+    if (rp) rp.addEventListener('click', function () {
+      var f = ($('rpFind') || {}).value || '';
+      if (!f) { note('先填查找内容'); return; }
+      S.searchQ = f;
+      get('search', { path: S.ws, q: f }).then(function (r) { S.searchRes = r; render(); note('以上为替换会命中的位置'); })
+        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var ra = $('rpApply');
+    if (ra) ra.addEventListener('click', function () {
+      var f = ($('rpFind') || {}).value || '';
+      var t = ($('rpTo') || {}).value || '';
+      if (!f) { note('先填查找内容'); return; }
+      if (!confirmAct('把全书「' + f + '」替换为「' + t + '」？逐章写入并留快照，建议先预览。')) return;
+      if (!confirmAct('再确认一次：真的全书替换？')) return;
+      note('替换中…');
+      postJson('replace', { path: S.ws, find: f, replace: t }).then(function (r) {
+        note('替换完成：' + (r.changed != null ? r.changed + ' 处' : JSON.stringify(r).slice(0, 120)));
+        loadState(); loadGates();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+  }
+
+  /* ── 角色卡 / 设定卡（可编辑） ── */
+  function cardEditor(title, rel) {
+    S.genEd = { rel: rel, title: title, loading: true };
+    render();
+    get('file-source', { path: S.ws, rel: rel }).then(function (d) {
+      S.genEd = { rel: rel, title: title, loading: false, text: d.text || '', hash: d.hash || '' };
+      render();
+    }).catch(function (e) {
+      S.genEd = { rel: rel, title: title, loading: false, err: String((e && e.message) || e) };
+      render();
+    });
+  }
+  function vGenEd() {
+    var e = S.genEd;
+    if (e.loading) return '<div class="note">正在读取 ' + esc(e.rel) + ' …</div>';
+    if (e.err) return '<div class="err">读取失败：' + esc(e.err) + '</div>';
+    return '<div class="card"><h3>编辑：' + esc(e.title) + ' <span class="badge">' + esc(e.rel) + '</span></h3>' +
+      '<div class="btnrow"><button type="button" id="genBack" class="sm">← 返回</button>' +
+      '<button type="button" id="genSave" class="sm pri">保存</button>' +
+      '<span class="muted">外部改过会 409 拒写，刷新再存即可</span></div>' +
+      '<textarea id="genText" class="editor small">' + esc(e.text) + '</textarea></div>';
+  }
+  function bindGenEd() {
+    var back = $('genBack'), save = $('genSave');
+    if (back) back.addEventListener('click', function () { S.genEd = null; render(); });
+    if (save) save.addEventListener('click', function () {
+      var e = S.genEd, text = $('genText').value;
+      note('保存中…');
+      postJson('file-save', { path: S.ws, rel: e.rel, text: text, base_hash: e.hash }).then(function () {
+        note('已保存 ' + e.rel);
+        S.genEd = null;
+        loadState();
+      }).catch(function (err) { note('保存失败：' + ((err && err.message) || err)); });
+    });
+  }
   function vCharacters(d) {
     var list = d.characters || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有角色卡</div></div>';
     return list.map(function (c) {
       return '<div class="card"><h3>' + esc(c.name || c.file) +
         (c.role ? '<span class="pill">' + esc(c.role) + '</span>' : '') +
-        (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') + '</h3>' + rows([
+        (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') +
+        (c.file ? '<button type="button" class="sm editcard" data-rel="characters/' + esc(c.file) + '" data-title="' + esc(c.name || c.file) + '" style="margin-left:auto">编辑</button>' : '') + '</h3>' + rows([
         ['年龄', c.age], ['性别', c.gender], ['外貌', c.appearance], ['性格', c.personality],
         ['背景', c.background], ['动机', c.motivation], ['成长线', c.arc],
         ['心理', c.psychology], ['首次出场', c.debut_chapter]
       ]) + '</div>';
     }).join('');
   }
+  function vWorld(d) {
+    var list = d.world || [];
+    if (!list.length) return '<div class="card"><div class="muted">还没有设定</div></div>';
+    return list.map(function (w) {
+      return '<div class="card"><h3>' + esc(w.name || w.file) +
+        (w.category ? '<span class="pill">' + esc(w.category) + '</span>' : '') +
+        (w.file ? '<button type="button" class="sm editcard" data-rel="world/' + esc(w.file) + '" data-title="' + esc(w.name || w.file) + '" style="margin-left:auto">编辑</button>' : '') + '</h3>' +
+        '<div class="muted" style="white-space:pre-wrap">' + esc(w.description || '') + '</div></div>';
+    }).join('');
+  }
+
+  /* ── 伏笔（可改状态） ── */
   function vForeshadows(d) {
     var list = d.foreshadows || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有伏笔</div></div>';
-    return '<div class="card"><h3>伏笔 ' + list.length + ' 条</h3>' + list.map(function (f) {
+    return '<div class="card"><h3>伏笔 ' + list.length + ' 条</h3>' + list.map(function (f, i) {
+      var opts = Object.keys(FORE_LABEL).map(function (k) {
+        return '<option value="' + k + '"' + (f.status === k ? ' selected' : '') + '>' + FORE_LABEL[k] + '</option>';
+      }).join('');
       return '<div class="row"><span class="k">' + esc(f.id || '') + '</span><span class="v">' +
         esc(f.title || f.content || '') +
-        (f.status ? '<span class="pill">' + esc(f.status) + '</span>' : '') +
         (f.priority ? '<span class="pill">' + esc(f.priority) + '</span>' : '') +
         (f.planted_chapter ? '<span class="pill">埋 ' + esc(f.planted_chapter) + '</span>' : '') +
         (f.expected_resolve ? '<span class="pill">收 ' + esc(f.expected_resolve) + '</span>' : '') +
-        (f.notes ? '<div class="muted">' + esc(f.notes) + '</div>' : '') + '</span></div>';
+        (f.notes ? '<div class="muted">' + esc(f.notes) + '</div>' : '') +
+        (f.id ? '<div class="btnrow"><select class="sm foreStatus" data-id="' + esc(f.id) + '">' + opts + '</select>' +
+          '<button type="button" class="sm foreApply" data-id="' + esc(f.id) + '">改状态</button></div>' : '') +
+        '</span></div>';
     }).join('') + '</div>';
   }
+  function bindFore() {
+    Array.prototype.forEach.call(document.querySelectorAll('.foreApply'), function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-id');
+        var sel = document.querySelector('.foreStatus[data-id="' + (id || '').replace(/"/g, '\\"') + '"]');
+        var status = sel ? sel.value : '';
+        if (!id || !status) return;
+        note('改伏笔状态…');
+        postJson('foreshadow-status', { path: S.ws, id: id, status: status }).then(function () {
+          note('伏笔 ' + id + ' → ' + (FORE_LABEL[status] || status));
+          loadState();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+  }
+
+  /* ── 关系（列表 + 关系图） ── */
   function vRelations(d) {
     var list = d.relations || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有关系</div></div>';
-    return '<div class="card"><h3>关系 ' + list.length + ' 条</h3>' + list.map(function (r) {
-      return '<div class="row"><span class="k">' + esc(r.a) + ' — ' + esc(r.b) + '</span><span class="v">' +
+    var names = [];
+    list.forEach(function (r) { [r.a, r.b].forEach(function (n) { if (n && names.indexOf(n) < 0) names.push(n); }); });
+    var listHtml = list.map(function (r, i) {
+      var dim = S.graphSel >= 0 && r.a !== names[S.graphSel] && r.b !== names[S.graphSel];
+      return '<div class="row" style="' + (dim ? 'opacity:.35' : '') + '"><span class="k">' + esc(r.a) + ' — ' + esc(r.b) + '</span><span class="v">' +
         esc(r.description || '') +
         (r.type ? '<span class="pill">' + esc(r.type) + '</span>' : '') +
         (r.intensity ? '<span class="pill">强度 ' + esc(r.intensity) + '</span>' : '') +
         (r.phase ? '<span class="pill">' + esc(r.phase) + '</span>' : '') + '</span></div>';
-    }).join('') + '</div>';
+    }).join('');
+    var chs = (S.data && S.data.chapters) || [];
+    var chOpts = '<option value=""' + (S.relChap === '' ? ' selected' : '') + '>全部章节（全书关系）</option>' +
+      chs.map(function (c) {
+        return '<option value="' + esc(c.file) + '"' + (S.relChap === c.file ? ' selected' : '') + '>第' + esc(c.num != null ? c.num : '?') + '章 ' + esc(c.title || '') + '</option>';
+      }).join('');
+    var shown = S.castFilter ? list.filter(function (r) { return S.castFilter.indexOf(r.a) >= 0 && S.castFilter.indexOf(r.b) >= 0; }) : list;
+    var chMeta = {};
+    chs.forEach(function (c) { chMeta[c.file] = c; });
+    var selBadge = S.castFilter && S.relChap ? '<span class="badge">' + esc('第' + ((chMeta[S.relChap] || {}).num || '?') + '章 ' + ((chMeta[S.relChap] || {}).title || '')) + '</span>' : '';
+    return vRelMaint() + '<div class="card"><h3>关系图 ' + selBadge + '<span class="badge">点节点高亮</span></h3>' +
+      '<select id="relChap" style="width:100%;margin-bottom:8px">' + chOpts + '</select>' +
+      '<div class="muted" style="margin-bottom:6px">' + (S.castFilter ? '本章出场角色之间的关系 ' + shown.length + ' 条' : '全书关系 ' + list.length + ' 条') + '</div>' +
+      '<canvas id="relcv" width="640" height="640" data-n="' + names.length + '"></canvas>' +
+      (S.graphSel >= 0 && names[S.graphSel] ? '<div class="muted" style="margin-top:6px">选中：' + esc(names[S.graphSel]) + '</div>' : '') +
+      '</div><div class="card"><h3>关系 ' + list.length + ' 条</h3>' + listHtml + '</div>';
   }
+  function drawGraph() {
+    var cv = $('relcv'); if (!cv) return;
+    var list = (S.data && S.data.relations) || [];
+    if (S.castFilter) list = list.filter(function (r) { return S.castFilter.indexOf(r.a) >= 0 && S.castFilter.indexOf(r.b) >= 0; });
+    var names = [], score = {};
+    list.forEach(function (r) {
+      [r.a, r.b].forEach(function (n) {
+        if (!n) return;
+        if (names.indexOf(n) < 0) { names.push(n); score[n] = 0; }
+        score[n] += Number(r.intensity || 1);
+      });
+    });
+    /* 主角 = 关系权重最高的角色，放正中；其余按重要程度降序上环。 */
+    names.sort(function (x, y) { return score[y] - score[x]; });
+    var W = 640, H = 640, cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 78;
+    var pos = [{ x: cx, y: cy }];
+    var ring = names.slice(1);
+    ring.forEach(function (n, i) {
+      var ang = -Math.PI / 2 + i * 2 * Math.PI / Math.max(ring.length, 1);
+      pos.push({ x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) });
+    });
+    function tier(n) {
+      var s = score[n] || 0;
+      return s >= 25 ? { c: '#ef5b5b', t: '核心' } : (s >= 12 ? { c: '#e5a063', t: '重要' } : (s >= 5 ? { c: '#6fa8ff', t: '次要' } : { c: '#5b6470', t: '边缘' }));
+    }
+    var ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineWidth = 1.5;
+    list.forEach(function (r) {
+      var ai = names.indexOf(r.a), bi = names.indexOf(r.b);
+      if (ai < 0 || bi < 0) return;
+      var hot = S.graphSel >= 0 && (ai === S.graphSel || bi === S.graphSel);
+      ctx.strokeStyle = hot ? '#4b8bf5' : '#525c66';
+      ctx.lineWidth = hot ? 4 : 2;
+      ctx.beginPath(); ctx.moveTo(pos[ai].x, pos[ai].y); ctx.lineTo(pos[bi].x, pos[bi].y); ctx.stroke();
+      /* 线上标关系类型（线上写的是关系，不是空白连线） */
+      var mx = (pos[ai].x + pos[bi].x) / 2, my = (pos[ai].y + pos[bi].y) / 2;
+      var tag = String(r.type || (r.description && String(r.description).slice(0, 6)) || '').slice(0, 8);
+      if (tag) {
+        ctx.font = (hot ? 'bold ' : '') + '15px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        var tw = ctx.measureText(tag).width;
+        ctx.fillStyle = hot ? '#1a2a44' : '#181a20';
+        ctx.fillRect(mx - tw / 2 - 5, my - 11, tw + 10, 22);
+        ctx.fillStyle = hot ? '#9cc0ff' : '#aab3bd';
+        ctx.fillText(tag, mx, my);
+      }
+    });
+    names.forEach(function (n, i) {
+      var hot = i === S.graphSel;
+      var hero = i === 0;
+      var tr = tier(n);
+      var rad = (hot || hero) ? 30 : (16 + Math.min(12, Math.round((score[n] || 1) / 3)));
+      ctx.beginPath(); ctx.arc(pos[i].x, pos[i].y, rad, 0, Math.PI * 2);
+      ctx.fillStyle = hot ? '#4b8bf5' : (hero ? '#3d5a8a' : '#1d2530');
+      ctx.fill();
+      ctx.strokeStyle = hot ? '#9cc0ff' : tr.c;
+      ctx.lineWidth = (hot || hero) ? 4 : 2.5;
+      ctx.stroke();
+      ctx.fillStyle = '#e9eaec';
+      ctx.font = ((hot || hero) ? 'bold ' : '') + (hero ? '18' : '16') + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(String(n).slice(0, 6), pos[i].x, pos[i].y - (rad + 12));
+    });
+    /* 图例：颜色 = 重要程度（关系强度总和） */
+    var leg = [['#ef5b5b', '核心 ≥25'], ['#e5a063', '重要 ≥12'], ['#6fa8ff', '次要 ≥5'], ['#5b6470', '边缘 <5']];
+    leg.forEach(function (l, i) {
+      ctx.beginPath(); ctx.arc(28 + i * 152, H - 16, 7, 0, Math.PI * 2);
+      ctx.fillStyle = l[0]; ctx.fill();
+      ctx.fillStyle = '#8d939c'; ctx.font = '13px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(l[1], 40 + i * 152, H - 11);
+    });
+    cv.positions = pos; cv.names = names;
+    if (!cv._bound) {
+      cv._bound = true;
+      cv.addEventListener('click', function (ev) {
+        var rect = cv.getBoundingClientRect();
+        var x = (ev.clientX - rect.left) * (W / rect.width);
+        var y = (ev.clientY - rect.top) * (H / rect.height);
+        var best = -1, bd = 1e9;
+        (cv.positions || []).forEach(function (p, i) {
+          var d2 = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+          if (d2 < bd) { bd = d2; best = i; }
+        });
+        if (best >= 0 && bd < 45 * 45) {
+          S.graphSel = (S.graphSel === best ? -1 : best);
+          render();
+        }
+      });
+    }
+  }
+
   function vTimeline(d) {
     var list = d.timeline || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有时间线</div></div>';
@@ -225,15 +776,6 @@ var BUILD = '3.2.0';
       return '<div class="row"><span class="k">' + esc(t.year || t.chapter || '') + '</span><span class="v">' +
         esc(t.title || '') + (t.description ? '<div class="muted">' + esc(t.description) + '</div>' : '') + '</span></div>';
     }).join('') + '</div>';
-  }
-  function vWorld(d) {
-    var list = d.world || [];
-    if (!list.length) return '<div class="card"><div class="muted">还没有设定</div></div>';
-    return list.map(function (w) {
-      return '<div class="card"><h3>' + esc(w.name || w.file) +
-        (w.category ? '<span class="pill">' + esc(w.category) + '</span>' : '') + '</h3>' +
-        '<div class="muted" style="white-space:pre-wrap">' + esc(w.description || '') + '</div></div>';
-    }).join('');
   }
   function vIndex(d) {
     var clues = d.clues || [], mem = d.memories || [];
@@ -247,65 +789,431 @@ var BUILD = '3.2.0';
         return '<div class="row"><span class="k">' + esc(m.category || '') + '</span><span class="v">' + esc(m.content || '') + '</span></div>';
       }).join('') : '<div class="muted">（无）</div>') + '</div>';
   }
+
+  /* ── 写作风格 ── */
+  function ensureStyle() {
+    if (S.style) return;
+    get('style', wsQuery()).then(function (d) { S.style = d; render(); })
+      .catch(function (e) { S.style = { ok:false, error: String((e && e.message) || e) }; render(); });
+    get('style-presets').then(function (d) { S.presets = d; }).catch(function () {});
+  }
+  function vStyle() {
+    ensureStyle();
+    if (!S.style) return '<div class="note">正在读取写作风格…</div>';
+    if (S.style.ok === false) return '<div class="err">' + esc(S.style.error) + '</div>';
+    var st = S.style;
+    var presets = '';
+    var plist = (S.presets && (S.presets.items || S.presets.presets)) || null;
+    if (plist) {
+      presets = '<div class="btnrow">' + plist.map(function (p) {
+        var id = p.register || p.id || p, label = p.label || p.name || p;
+        return '<button type="button" class="sm presetBtn" data-reg="' + esc(id) + '">语言档位：' + esc(label) + '</button>';
+      }).join('') + '<span class="muted">套用只改「## 语言」节</span></div>';
+    }
+    var text = st.found ? st.text : (st.template || '');
+    return '<div class="card"><h3>写作风格基准' + (st.found ? '' : ' <span class="badge">尚未创建</span>') + '</h3>' +
+      presets +
+      '<div class="btnrow"><button type="button" id="styleSave" class="sm pri">' + (st.found ? '保存' : '以模板创建并保存') + '</button></div>' +
+      '<textarea id="styleText" class="editor small">' + esc(text) + '</textarea>' +
+      '<div class="muted" style="margin-top:6px">外部改过会 409 拒写；改完点保存即生效，不需要重启。</div></div>';
+  }
+  function bindStyle() {
+    var save = $('styleSave'); if (!save) return;
+    save.addEventListener('click', function () {
+      var text = $('styleText').value;
+      var base = (S.style && S.style.found) ? S.style.hash : undefined;
+      note('保存风格…');
+      postJson('style-save', { path: S.ws, text: text, base_hash: base }).then(function () {
+        note('风格已保存'); S.style = null; render();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.presetBtn'), function (b) {
+      b.addEventListener('click', function () {
+        if (!confirmAct('套用语言档位「' + b.getAttribute('data-reg') + '」？只改 style.md 的「## 语言」节。')) return;
+        note('套用档位…');
+        postJson('style-register', { path: S.ws, register: b.getAttribute('data-reg') }).then(function () {
+          note('已套用'); S.style = null; render();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+  }
+
+  /* ── 项目（project.yml 表单） ── */
+  function ensureProj() {
+    if (S.proj) return;
+    /* project.yml 不在受管白名单里（file-source 会拒）：值与指纹直接取 state 快照。 */
+    var p = (S.data && S.data.project) || {};
+    if (!p.language) p = Object.assign({ language: 'zh' }, p);
+    S.proj = { values: p, hash: (S.data && S.data.project_hash) || '' };
+    render();
+  }
+  function vProject() {
+    ensureProj();
+    if (!S.proj || S.proj.error) return '<div class="err">' + esc((S.proj && S.proj.error) || '读取中…') + '</div>';
+    if (!S.proj.values) return '<div class="note">正在读取 project.yml…</div>';
+    var v = S.proj.values;
+    function inp(id, label, val) {
+      return '<div class="row"><span class="k">' + label + '</span><span class="v"><input id="' + id + '" style="width:100%" value="' + esc(val || '') + '"></span></div>';
+    }
+    var phaseOpts = PHASES.map(function (k) {
+      return '<option value="' + k + '"' + (v.phase === k ? ' selected' : '') + '>' + (PHASE_LABEL[k] || k) + '</option>';
+    }).join('');
+    var modeOpts = MODES.map(function (k) {
+      return '<option value="' + k + '"' + (v.mode === k ? ' selected' : '') + '>' + (MODE_LABEL[k] || k) + '</option>';
+    }).join('');
+    return '<div class="card"><h3>project.yml</h3>' +
+      inp('pTitle', '书名', v.title) + inp('pAuthor', '作者', v.author) +
+      inp('pGenre', '题材', v.genre) + inp('pLength', '篇幅', v.length) +
+      inp('pLang', '语言', v.language || 'zh') +
+      '<div class="row"><span class="k">阶段</span><span class="v"><select id="pPhase" style="width:100%">' + phaseOpts + '</select></span></div>' +
+      '<div class="row"><span class="k">模式</span><span class="v"><select id="pMode" style="width:100%">' + modeOpts + '</select></span></div>' +
+      '<div class="row"><span class="k">简介</span><span class="v"><textarea id="pDesc" class="small" style="width:100%">' + esc(v.description || '') + '</textarea></span></div>' +
+      '<div class="btnrow"><button type="button" id="projSave" class="sm pri">保存</button>' +
+      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>';
+  }
+  function bindProj() {
+    var save = $('projSave'); if (!save) return;
+    save.addEventListener('click', function () {
+      note('保存 project.yml…');
+      postJson('project-save', {
+        path: S.ws,
+        values: {
+          title: $('pTitle').value, author: $('pAuthor').value, genre: $('pGenre').value,
+          length: $('pLength').value, language: $('pLang').value,
+          phase: $('pPhase').value, mode: $('pMode').value, description: $('pDesc').value
+        },
+        base_hash: S.proj.hash
+      }).then(function () {
+        note('project.yml 已保存'); S.proj = null;
+        loadState();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+  }
+
+  /* ── 工具（回收站 / 账本瘦身 / 索引重建） ── */
+  function ensureTools() {
+    if (S.trash) return;
+    get('trash', wsQuery()).then(function (d) { S.trash = d; render(); }).catch(function () { S.trash = { ok:true, items:[] }; });
+    get('ledger-stats', wsQuery()).then(function (d) { S.ledger = d; }).catch(function () {});
+  }
   function vTools() {
+    ensureTools();
     var q = '?path=' + encodeURIComponent(S.ws);
-    return '<div class="card"><h3>导出</h3><div style="display:flex;gap:6px;flex-wrap:wrap">' +
+    var out = '<div class="card"><h3>导出</h3><div style="display:flex;gap:6px;flex-wrap:wrap">' +
       ['md','txt','epub','docx'].map(function (f) {
         return '<a class="sm" style="display:inline-block;padding:5px 10px;border:1px solid #3d424a;border-radius:8px;text-decoration:none" ' +
           'href="' + API + 'export-book' + q + '&format=' + f + '">整本导出 ' + f.toUpperCase() + '</a>';
-      }).join('') + '</div></div>' +
-      '<div class="card"><h3>工具（只读）</h3><div class="muted">体检、门禁、回收站等需要更长耗时，先在面板里用；这里先给最常用的导出入口。</div>' +
-      '<div style="margin-top:8px"><button type="button" id="btnCsv" class="sm">导出章节清单 CSV</button></div></div>' +
-      '<div class="card"><h3>连接信息</h3>' + rows([
-        ['工作区', S.ws], ['页面构建', BUILD], ['接口前缀', API]
-      ]) + '</div>';
-  }
-
-  /* ── 渲染 ── */
-  function render() {
-    tabBar();
-    $('build').textContent = 'b' + BUILD;
-    var v = $('view');
-    if (S.err) {
-      v.innerHTML = '<div class="err">读取失败：' + esc(S.err) +
-        '<div class="muted" style="margin-top:6px">点顶栏「刷新」重试。</div></div>';
-      return;
-    }
-    if (!S.data) { v.innerHTML = '<div class="note">正在读取…</div>'; return; }
-    if (S.reader) { v.innerHTML = vReader(); bindReader(); return; }
-    var fns = { overview: vOverview, chapters: vChapters, characters: vCharacters,
-                foreshadows: vForeshadows, relations: vRelations, timeline: vTimeline,
-                world: vWorld, index: vIndex, tools: vTools };
-    v.innerHTML = (fns[S.tab] || vOverview)(S.data);
-    bindChapters();
-    var q = $('q');
-    if (q) {
-      q.addEventListener('input', function () {
-        S.q = q.value;
-        var d = S.data; S.data = d;
-        var pos = q.selectionStart;
-        render();
-        var q2 = $('q'); if (q2) { q2.focus(); try { q2.setSelectionRange(pos, pos); } catch (e) {} }
+      }).join('') + '</div>' +
+      '<div class="btnrow"><button type="button" id="btnCsv" class="sm">导出章节清单 CSV</button>' +
+      '<button type="button" id="btnReindex" class="sm">重建索引板</button></div></div>';
+    out += '<div class="card"><h3>回收站' + (S.trash ? ' <span class="badge">' + ((S.trash.items || []).length) + ' 项</span>' : '') + '</h3>';
+    if (!S.trash) out += '<div class="muted">读取中…</div>';
+    else if (!(S.trash.items || []).length) out += '<div class="muted ok">回收站是空的 ✓</div>';
+    else out += S.trash.items.map(function (it) {
+      return '<div class="row"><span class="k">' + esc(it.rel || it.id) + '</span><span class="v">' +
+        '<span class="muted">' + esc((it.at || '').toString().slice(0, 19).replace('T', ' ')) + ' · ' + esc(it.bytes || 0) + 'B</span> ' +
+        '<button type="button" class="sm trashRestore" data-id="' + esc(it.id) + '">恢复</button> ' +
+        '<button type="button" class="sm warn trashPurge" data-id="' + esc(it.id) + '">彻底删除</button></span></div>';
+    }).join('');
+    out += '</div>';
+    out += '<div class="card"><h3>账本瘦身</h3><div class="btnrow"><button type="button" id="btnSlimPlan" class="sm">生成瘦身计划</button></div>';
+    if (S.slim) {
+      out += rows([
+        ['瘦身范围', S.slim.before || '已写完卷'],
+        ['可搬条目', S.slim.moveTotal + ' 条'],
+        ['阻塞', S.slim.blockedAny ? '有章节未写完，部分账不搬' : '无']
+      ]);
+      (S.slim.plan || []).forEach(function (p) {
+        out += '<div class="row"><span class="k">' + esc(p.file) + '</span><span class="v">搬 ' + p.move + ' 留 ' + p.keep +
+          ' → ' + esc(p.archiveFile) + (p.blocked ? '<span class="pill bad">阻塞</span>' : '') + '</span></div>';
       });
+      if (S.slim.moveTotal > 0) out += '<div class="btnrow"><button type="button" id="btnSlimApply" class="sm warn">执行归档（写前留 .bak）</button></div>';
     }
-    var csv = $('btnCsv');
-    if (csv) csv.addEventListener('click', exportCsv);
+    out += '</div>';
+    if (S.ledger && S.ledger.ledgers) {
+      out += '<div class="card"><h3>账本体检</h3>' + S.ledger.ledgers.map(function (l) {
+        return '<div class="row"><span class="k">' + esc(l.file || l.name) + '</span><span class="v">' +
+          esc((l.count || 0) + ' 条 · ' + Math.round((l.bytes || 0) / 1024) + 'KB' + (l.oversize ? ' · 超长 ' + l.oversize + ' 条' : '')) + '</span></div>';
+      }).join('') + '</div>';
+    }
+    out += '<div class="card"><h3>章节交接卡</h3>' +
+      '<input id="hoFile" placeholder="章节文件名（如 v01-c047.md）" style="width:100%">' +
+      '<div class="btnrow"><button type="button" id="btnHandoff" class="sm">生成交接卡（写下一章的前提全在这）</button></div>';
+    if (S.handoff) out += '<textarea class="editor small" readonly>' + esc(S.handoff.markdown || JSON.stringify(S.handoff).slice(0, 2000)) + '</textarea>';
+    out += '</div>';
+    out += '<div class="card"><h3>勾选导出</h3>' +
+      '<input id="exFiles" placeholder="章号或文件名，逗号分隔（如 1,2,7）" style="width:100%">' +
+      '<div class="btnrow"><button type="button" id="exTxt" class="sm">导出选中 TXT</button>' +
+      '<button type="button" id="exDocx" class="sm">导出选中 DOCX</button></div></div>';
+    out += '<div class="card"><h3>账本清理</h3><div class="btnrow"><button type="button" id="btnLclean" class="sm">清理计划（只读）</button></div>';
+    if (S.lclean) {
+      out += '<div class="muted" style="white-space:pre-wrap">' + esc(JSON.stringify(S.lclean, null, 1).slice(0, 1500)) + '</div>';
+      out += '<div class="btnrow"><button type="button" id="btnLcleanApply" class="sm warn">执行清理</button></div>';
+    }
+    out += '</div>';
+    out += '<div class="card"><h3>工作区管理</h3>' +
+      ((S.wsList || []).map(function (w) {
+        return '<div class="row"><span class="v">' + esc(w.name || w.path) + '<span class="muted"> ' + esc(w.path) + '</span>' +
+          (w.path === S.ws ? '<span class="pill good">当前</span>' : '') +
+          (w.path !== S.ws ? ' <button type="button" class="sm warn wsRemove" data-path="' + esc(w.path) + '">移除登记</button>' : '') +
+          '</span></div>';
+      }).join('') || '<div class="muted">（无）</div>') +
+      '<div class="btnrow"><input id="wsAddPath" placeholder="新工作区绝对路径" style="flex:1 1 12em;min-width:0">' +
+      '<button type="button" id="wsAddBtn" class="sm">添加工作区</button></div>' +
+      '<div class="muted">移除只是取消登记，不动磁盘文件。</div></div>';
+    out += '<div class="card"><h3>插件自更新</h3><div class="btnrow"><button type="button" id="btnSelfUpd" class="sm warn">检查并自更新插件</button></div>' +
+      '<div class="muted">从 GitHub 拉最新版装进 DSH，更新后需要重启 Web 进程生效。</div></div>';
+    out += '<div class="card"><h3>连接信息</h3>' + rows([
+      ['工作区', S.ws], ['页面构建', BUILD], ['接口前缀', API]
+    ]) + '</div>';
+    return out;
   }
-
-  function bindChapters() {
-    Array.prototype.forEach.call(document.querySelectorAll('.chap'), function (b) {
-      b.addEventListener('click', function () { openChapter(b.getAttribute('data-file')); });
+  function bindTools() {
+    var csv = $('btnCsv'); if (csv) csv.addEventListener('click', exportCsv);
+    var re = $('btnReindex');
+    if (re) re.addEventListener('click', function () {
+      if (!confirmAct('重建索引板（clue-board）？只重排索引，不动正文。')) return;
+      note('重建中…');
+      postJson('rebuild-index', { path: S.ws }).then(function () { note('索引板已重建'); loadState(); })
+        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.trashRestore'), function (b) {
+      b.addEventListener('click', function () {
+        postJson('trash-restore', { path: S.ws, id: b.getAttribute('data-id') }).then(function () {
+          note('已恢复'); S.trash = null; render(); loadState();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.trashPurge'), function (b) {
+      b.addEventListener('click', function () {
+        if (!confirmAct('彻底删除？不可恢复。')) return;
+        postJson('trash-purge', { path: S.ws, id: b.getAttribute('data-id') }).then(function () {
+          note('已删除'); S.trash = null; render();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+    var sp = $('btnSlimPlan');
+    if (sp) sp.addEventListener('click', function () {
+      note('生成瘦身计划…');
+      get('slim-plan', wsQuery()).then(function (d) { S.slim = d; render(); })
+        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var sa = $('btnSlimApply');
+    if (sa) sa.addEventListener('click', function () {
+      if (!confirmAct('执行账本归档？搬 ' + ((S.slim && S.slim.moveTotal) || 0) + ' 条到归档文件，主账写前留 .bak。')) return;
+      note('归档中…');
+      postJson('slim-apply', { path: S.ws, before: (S.slim && S.slim.before) || '' }).then(function () {
+        note('归档完成'); S.slim = null; S.trash = null; render(); loadState();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var hf = $('btnHandoff');
+    if (hf) hf.addEventListener('click', function () {
+      var f = (($('hoFile') || {}).value || '').trim();
+      if (!f) { note('先填章节文件名'); return; }
+      note('生成交接卡…');
+      get('handoff', { path: S.ws, file: f }).then(function (d) { S.handoff = d; render(); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    function exGo(fmt) {
+      var files = (($('exFiles') || {}).value || '').trim();
+      if (!files) { note('先填章号或文件名'); return; }
+      window.open(API + 'export-selection?path=' + encodeURIComponent(S.ws) + '&format=' + fmt + '&files=' + encodeURIComponent(files), '_blank');
+    }
+    var et = $('exTxt'); if (et) et.addEventListener('click', function () { exGo('txt'); });
+    var ed2 = $('exDocx'); if (ed2) ed2.addEventListener('click', function () { exGo('docx'); });
+    var lc = $('btnLclean');
+    if (lc) lc.addEventListener('click', function () {
+      get('ledger-clean', wsQuery()).then(function (d) { S.lclean = d; render(); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var lca = $('btnLcleanApply');
+    if (lca) lca.addEventListener('click', function () {
+      if (!confirmAct('执行账本清理？按上面计划压缩/合并条目。')) return;
+      postJson('ledger-clean', { path: S.ws }).then(function () { note('清理完成'); S.lclean = null; S.trash = null; render(); loadState(); })
+        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var wa = $('wsAddBtn');
+    if (wa) wa.addEventListener('click', function () {
+      var p = (($('wsAddPath') || {}).value || '').trim();
+      if (!p) { note('先填路径'); return; }
+      postJson('workspace-add', { path: p }).then(function () { note('已添加'); boot(); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.wsRemove'), function (b) {
+      b.addEventListener('click', function () {
+        if (!confirmAct('移除工作区登记（不动磁盘文件）？')) return;
+        postJson('workspace-remove', { path: b.getAttribute('data-path') }).then(function () { note('已移除'); boot(); })
+          .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+    var su = $('btnSelfUpd');
+    if (su) su.addEventListener('click', function () {
+      if (!confirmAct('从 GitHub 检查并自更新插件？更新后需重启 Web 进程生效。')) return;
+      note('自更新中…（可能要一会儿）');
+      postJson('self-update', {}).then(function (d) {
+        note(d && d.ok ? '更新完成：' + (d.to || d.tag || '') + '（重启后生效）' : '没有更新：' + ((d && d.error) || (d && d.kind) || ''));
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
     });
   }
-  function chapterList() { return (S.data && S.data.chapters) || []; }
-  function indexOfFile(file) {
-    var list = chapterList();
-    for (var i = 0; i < list.length; i++) if (list[i].file === file) return i;
-    return -1;
+
+  /* ── 版本（git + 章节快照） ── */
+  function ensureGit() {
+    if (S.git) return;
+    get('git-status', wsQuery()).then(function (d) {
+      S.git = d;
+      if (d.available && d.isRepo) loadGitLog();
+      render();
+    }).catch(function (e) { S.git = { available:false, error: String((e && e.message) || e) }; render(); });
+  }
+  function loadGitLog() {
+    get('git-log', { path: S.ws, limit: 30 }).then(function (d) { S.gitLog = d; render(); })
+      .catch(function () { S.gitLog = { ok:false, commits:[] }; });
+  }
+  function vHistory() {
+    ensureGit();
+    var out = '<div class="card"><h3>git 书稿仓</h3>';
+    if (!S.git) out += '<div class="muted">读取中…</div>';
+    else if (S.git.available === false) out += '<div class="muted">环境没有 git，面板快照仍然可用（见下方章节快照）。</div>';
+    else if (!S.git.isRepo) out += '<div class="btnrow"><button type="button" id="gitInit" class="sm pri">初始化 git 仓</button><span class="muted">只管 novel/ 书稿目录</span></div>';
+    else {
+      out += rows([
+        ['分支', S.git.branch || ''], ['工作区', S.git.clean === true ? '干净' : (S.git.clean === false ? '有未提交改动' : '')],
+        ['未提交', (S.git.changed || []).length ? (S.git.changed || []).join('、') : '']
+      ]);
+      out += '<div class="btnrow"><input id="gitMsg" placeholder="提交说明（可留空自动生成）" style="flex:1 1 12em;min-width:0">' +
+        '<button type="button" id="gitCommit" class="sm pri">提交存档</button></div>';
+    }
+    out += '</div>';
+    if (S.gitLog && (S.gitLog.commits || []).length) {
+      var chs = (S.data && S.data.chapters) || [];
+      var chOpts = chs.map(function (c) {
+        return '<option value="' + esc(c.file) + '"' + (S.versionsFile === c.file ? ' selected' : '') + '>第' + esc(c.num != null ? c.num : '?') + '章 ' + esc(c.title || '') + '</option>';
+      }).join('');
+      out += '<div class="card"><h3>提交历史（回滚单章用）</h3>' +
+        '<div class="row"><span class="k">选章</span><span class="v"><select id="verFile" style="width:100%">' + chOpts + '</select></span></div>' +
+        S.gitLog.commits.map(function (c) {
+          return '<div class="row"><span class="k">' + esc(String(c.rev || c.hash || '').slice(0, 8)) + '</span><span class="v">' +
+            esc(c.subject || c.message || '') + '<span class="muted"> ' + esc((c.date || c.at || '').toString().slice(0, 19).replace('T', ' ')) + '</span> ' +
+            '<button type="button" class="sm warn gitRestore" data-rev="' + esc(c.rev || c.hash) + '">回滚选中章到此版</button></span></div>';
+        }).join('') + '</div>';
+    }
+    if (S.versions) {
+      out += '<div class="card"><h3>章节快照（保存正文时自动留）</h3>';
+      if (!(S.versions.versions || []).length) out += '<div class="muted">这一章还没有快照。</div>';
+      else out += S.versions.versions.map(function (v) {
+        return '<div class="row"><span class="k">' + esc((v.at || v.t || '').toString().slice(0, 19).replace('T', ' ')) + '</span><span class="v">' +
+          esc((v.words != null ? v.words + ' 字' : '') + (v.reason ? ' · ' + v.reason : '')) + '</span></div>';
+      }).join('');
+      out += '</div>';
+    }
+    return out;
+  }
+  function bindHistory() {
+    var gi = $('gitInit');
+    if (gi) gi.addEventListener('click', function () {
+      postJson('git-init', { path: S.ws }).then(function () { note('git 仓已初始化'); S.git = null; S.gitLog = null; render(); })
+        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var gc = $('gitCommit');
+    if (gc) gc.addEventListener('click', function () {
+      note('提交中…');
+      postJson('git-commit', { path: S.ws, message: ($('gitMsg') || {}).value || '' }).then(function (d) {
+        note('已提交' + (d && d.rev ? ' ' + String(d.rev).slice(0, 8) : '')); S.gitLog = null; S.git = null; render();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var vf = $('verFile');
+    if (vf) vf.addEventListener('change', function () {
+      S.versionsFile = vf.value; S.versions = null;
+      get('versions', { path: S.ws, file: S.versionsFile }).then(function (d) { S.versions = d; render(); })
+        .catch(function () { S.versions = { ok:true, versions:[] }; });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.gitRestore'), function (b) {
+      b.addEventListener('click', function () {
+        var file = S.versionsFile;
+        if (!file) { note('先在上面选一章'); return; }
+        if (!confirmAct('把「' + file + '」回滚到提交 ' + b.getAttribute('data-rev').slice(0, 8) + '？当前正文会先自动留快照。')) return;
+        note('回滚中…');
+        postJson('git-restore', { path: S.ws, rel: 'chapters/' + file, rev: b.getAttribute('data-rev') }).then(function () {
+          note('已回滚'); loadState(); if (S.reader) openChapter(S.reader.file);
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+  }
+
+  /* ── 阅读页（含编辑 + 门禁） ── */
+  function vReader() {
+    var r = S.reader;
+    if (r.loading) return '<div class="note">正在读取 ' + esc(r.file) + ' …</div>';
+    if (r.err) return '<div class="err">读取失败：' + esc(r.err) + '</div>';
+    var words = String(r.body || '').replace(/\s/g, '').length;
+    var stOpts = Object.keys(STATUS_LABEL).map(function (k) {
+      return '<option value="' + k + '"' + (r.status === k ? ' selected' : '') + '>' + STATUS_LABEL[k] + '</option>';
+    }).join('');
+    var ed = S.ed;
+    var editBtns = '<button type="button" id="btnBack" class="sm">← 章节列表</button>' +
+      '<button type="button" id="btnPrev" class="sm">上一章</button>' +
+      '<button type="button" id="btnNext" class="sm">下一章</button>' +
+      '<button type="button" id="btnCopy" class="sm">复制全章</button>' +
+      (ed && ed.mode === 'body'
+        ? '<button type="button" id="btnSaveBody" class="sm pri">保存正文</button><button type="button" id="btnCancelEd" class="sm">取消编辑</button>'
+        : '<button type="button" id="btnEditBody" class="sm">编辑正文</button>') +
+      (ed && ed.mode === 'outline'
+        ? '<button type="button" id="btnSaveOutline" class="sm pri">保存章纲</button><button type="button" id="btnCancelEd" class="sm">取消编辑</button>'
+        : '<button type="button" id="btnEditOutline" class="sm">编辑章纲</button>') +
+      ' 状态 <select id="statusSel" class="sm">' + stOpts + '</select>';
+    var gateCard = '';
+    if (S.gateOne) {
+      var g = S.gateOne;
+      if (g.ok === false) gateCard = '<div class="card"><h3>门禁</h3><div class="muted">这一章没有分：' + esc(g.reason || g.error || '?') + '</div></div>';
+      else {
+        var pm = g.passMark, pass = g.pass;
+        var hard = (g.hard || []).map(function (h) { return '<span class="pill bad">' + esc(h) + '</span>'; }).join('');
+        var prevTxt = g.prev && typeof g.prev.h === 'number' ? '上次 ' + g.prev.h : '';
+        gateCard = '<div class="card"><h3>门禁 <span class="score" style="color:' +
+          (pass === true ? '#3fbf7f' : (pass === false ? '#ff8f8f' : '#e9eaec')) + '">' + esc(g.human) + '</span>' +
+          '<span class="badge">及格线 ' + esc(pm) + '</span>' +
+          (pass === true ? '<span class="pill good">达标</span>' : (pass === false ? '<span class="pill bad">未达标</span>' : '')) +
+          '</h3>' + rows([
+          ['检测器', g.detector != null ? g.detector + ' 分' : ''], ['字数', g.words != null ? g.words + ' 字' : ''],
+          ['上次', prevTxt], ['尾钩', HOOK_LABEL[(g.hook && g.hook.kind)] || (g.hook && g.hook.kind) || ''],
+          ['硬伤', (g.hard || []).length ? '' : '无']
+        ]) + (hard ? '<div style="margin-top:4px">' + hard + '</div>' : '');
+        var flags = g.flags || [];
+        if (flags.length) {
+          gateCard += '<h3 style="margin-top:10px">嫌疑句 ' + flags.length + '（按建议改只做保守微调）</h3>' +
+            '<div class="btnrow"><button type="button" id="btnFixAll" class="sm">一键保守修（先预览）</button><button type="button" id="btnGateUndo" class="sm warn">撤销上次自动修</button></div>' +
+            flags.slice(0, 12).map(function (f, i) {
+              return '<div class="flagrow"><span class="fx">' + esc(String(f.text || '').slice(0, 160)) +
+                '<div class="muted">' + (f.flags || []).map(function (x) { return esc(x.hit); }).join(' · ') + '</div></span>' +
+                '<button type="button" class="sm fixOne" data-i="' + i + '">修</button></div>';
+            }).join('');
+        }
+        gateCard += '</div>';
+      }
+    } else gateCard = '<div class="card"><h3>门禁</h3><div class="muted">分析中…</div></div>';
+    var outlineBlock;
+    if (ed && ed.mode === 'outline') {
+      outlineBlock = '<div class="card"><h3>章纲（编辑中）</h3><textarea id="outlineText" class="editor small">' + esc(ed.text) + '</textarea></div>';
+    } else if (r.outline) {
+      outlineBlock = '<div class="card"><h3>章纲</h3><div class="muted" style="white-space:pre-wrap">' + esc(String(r.outline).slice(0, 1200)) + '</div></div>';
+    } else outlineBlock = '';
+    var castCard = '';
+    if (S.cast) {
+      var names = S.cast.names || [];
+      castCard = '<div class="card"><h3>本章出场 <span class="badge">' + names.length + ' / ' + (S.cast.total || '?') + ' 张卡</span></h3>' +
+        (names.length ? '<div>' + names.map(function (n) { return '<span class="pill">' + esc(n) + '</span>'; }).join('') + '</div>'
+          : '<div class="muted">本章没有命中任何角色卡人名</div>') + '</div>';
+    }
+    var bodyBlock;
+    if (ed && ed.mode === 'body') {
+      bodyBlock = '<div class="card"><h3>正文（编辑中）</h3><textarea id="bodyEdit" class="editor">' + esc(ed.text) + '</textarea></div>';
+    } else {
+      bodyBlock = '<div class="body" id="bodyText">' + esc(r.body || '（本章正文为空）') + '</div>';
+    }
+    return '<div class="card"><h3>' + esc(r.title || r.file) + '<span class="badge">' + words + ' 字</span></h3>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + editBtns + '</div></div>' +
+      gateCard + castCard + outlineBlock + bodyBlock;
   }
   function bindReader() {
     var back = $('btnBack'), prev = $('btnPrev'), next = $('btnNext'), cp = $('btnCopy');
-    if (back) back.addEventListener('click', function () { S.reader = null; render(); });
+    if (back) back.addEventListener('click', function () { S.reader = null; S.gateOne = null; S.ed = null; render(); });
     if (prev) prev.addEventListener('click', function () {
       var i = indexOfFile(S.reader && S.reader.file);
       if (i > 0) openChapter(chapterList()[i - 1].file); else note('已经是第一章');
@@ -318,17 +1226,120 @@ var BUILD = '3.2.0';
       var t = (S.reader && S.reader.title ? S.reader.title + '\n\n' : '') + ((S.reader && S.reader.body) || '');
       copy(t).then(function (ok) { note(ok ? '已复制全章' : '复制失败（可长按正文手动选择）'); });
     });
+    var eb = $('btnEditBody');
+    if (eb) eb.addEventListener('click', function () {
+      S.ed = { mode: 'body', text: S.reader.body || '', hash: S.reader.hash || '' };
+      render();
+    });
+    var eo = $('btnEditOutline');
+    if (eo) eo.addEventListener('click', function () {
+      S.ed = { mode: 'outline', text: S.reader.outline || '', hash: S.reader.outlineHash || '' };
+      render();
+    });
+    var ce = $('btnCancelEd');
+    if (ce) ce.addEventListener('click', function () { S.ed = null; render(); });
+    var sb = $('btnSaveBody');
+    if (sb) sb.addEventListener('click', function () {
+      var text = $('bodyEdit').value;
+      note('保存正文…');
+      postJson('chapter-save', { path: S.ws, file: S.reader.file, body: text, base_hash: S.ed.hash }).then(function () {
+        note('正文已保存');
+        S.ed = null;
+        S.gateOne = null;
+        openChapter(S.reader.file);
+        loadState(); loadGates();
+      }).catch(function (e) { note('保存失败：' + ((e && e.message) || e)); });
+    });
+    var so = $('btnSaveOutline');
+    if (so) so.addEventListener('click', function () {
+      var text = $('outlineText').value;
+      note('保存章纲…');
+      postJson('outline-save', { path: S.ws, file: S.reader.file, body: text, base_hash: S.ed.hash }).then(function () {
+        note('章纲已保存'); S.ed = null; openChapter(S.reader.file);
+      }).catch(function (e) { note('保存失败：' + ((e && e.message) || e)); });
+    });
+    var ss = $('statusSel');
+    if (ss) ss.addEventListener('change', function () {
+      note('改状态…');
+      postJson('chapter-status', { path: S.ws, file: S.reader.file, status: ss.value }).then(function () {
+        note('状态 → ' + (STATUS_LABEL[ss.value] || ss.value));
+        loadState();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var gu = $('btnGateUndo');
+    if (gu) gu.addEventListener('click', function () {
+      if (!confirmAct('撤销最近一次自动修，正文恢复到修改前？')) return;
+      postJson('gate-undo', { path: S.ws, file: S.reader.file }).then(function (d) {
+        note('已撤销（回到人味 ' + d.human + '）');
+        S.gateOne = null; S.cast = null;
+        openChapter(S.reader.file);
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var fa = $('btnFixAll');
+    if (fa) fa.addEventListener('click', function () {
+      note('预览一键修…');
+      postJson('gate-fix-all', { path: S.ws, file: S.reader.file, preview: true }).then(function (d) {
+        if (!d.count) { note('没有可自动处理的病灶句'); return; }
+        var sample = (d.items || []).slice(0, 3).map(function (it) { return '· ' + it.before.slice(0, 30) + ' → ' + it.after.slice(0, 30); }).join('\n');
+        if (!confirmAct('可保守修 ' + d.count + ' 句（人味 ' + d.before.h + ' → ' + d.after.h + '）。只删副词/拆长句/打散并列，不动情节。执行？\n' + sample)) {
+          note('已取消'); return;
+        }
+        note('执行一键修…');
+        postJson('gate-fix-all', { path: S.ws, file: S.reader.file }).then(function (d2) {
+          note('已修 ' + d2.count + ' 句，人味 ' + d2.before.h + ' → ' + d2.after.h);
+          S.gateOne = null;
+          openChapter(S.reader.file);
+          loadGates();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.fixOne'), function (b) {
+      b.addEventListener('click', function () {
+        var g = S.gateOne; if (!g || !g.flags) return;
+        var f = g.flags[Number(b.getAttribute('data-i'))];
+        if (!f) return;
+        note('按建议改…');
+        postJson('gate-fix', { path: S.ws, file: S.reader.file, sentence: f.text }).then(function (d) {
+          note('已改：' + d.before.slice(0, 24) + ' → ' + d.after.slice(0, 24) + '（人味 ' + d.human + '）');
+          S.gateOne = null;
+          openChapter(S.reader.file);
+          loadGates();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
+    });
+  }
+  function loadGateOne(file) {
+    get('gate', { path: S.ws, file: file }).then(function (d) {
+      S.gateOne = d;
+      if (S.reader && S.reader.file === file) render();
+    }).catch(function (e) {
+      S.gateOne = { ok: false, reason: String((e && e.message) || e) };
+      if (S.reader && S.reader.file === file) render();
+    });
+  }
+  function chapterList() { return (S.data && S.data.chapters) || []; }
+  function indexOfFile(file) {
+    var list = chapterList();
+    for (var i = 0; i < list.length; i++) if (list[i].file === file) return i;
+    return -1;
   }
   function openChapter(file) {
     if (!file) return;
+    if (indexOfFile(file) < 0) { note('这一条不是章节正文（可能是章纲），只能在章节列表打开'); return; }
     var idx = indexOfFile(file);
     var meta = idx >= 0 ? chapterList()[idx] : null;
-    S.reader = { file: file, loading: true, title: meta ? meta.title : file, body: '' };
+    S.ed = null;
+    S.gateOne = null;
+    S.reader = { file: file, loading: true, title: meta ? meta.title : file, body: '', status: meta && meta.status };
     render(); window.scrollTo(0, 0);
     get('chapter', { path: S.ws, file: file }).then(function (d) {
       S.reader = { file: file, loading: false, title: (meta && meta.title) || file,
-        body: (d && d.body) || '', outline: (d && d.outline && d.outline.body) || '' };
+        body: (d && d.body) || '', hash: (d && d.hash) || '',
+        outline: (d && d.outline && d.outline.body) || '', outlineHash: (d && d.outline && d.outline.hash) || '',
+        status: (d && d.frontmatter && d.frontmatter.status) || (meta && meta.status) || '' };
       S.err = ''; render();
+      loadGateOne(file);
+      loadCast(file);
     }).catch(function (e) {
       if (S.reader) { S.reader.loading = false; S.reader.err = String((e && e.message) || e); }
       render();
@@ -349,20 +1360,123 @@ var BUILD = '3.2.0';
     note('已导出章节清单 CSV');
   }
 
+  /* ── 板块折叠：每个卡片固定高度内滚 + 收起/展开 ── */
+  function decorateCards() {
+    Array.prototype.forEach.call(document.querySelectorAll('.card'), function (card, idx) {
+      var h = card.querySelector('h3');
+      if (!h || card.getAttribute('data-dec')) return;
+      card.setAttribute('data-dec', '1');
+      var body = document.createElement('div');
+      body.className = 'cbody';
+      if (S.tab === 'characters') body.style.maxHeight = '34vh';
+      var nodes = [];
+      for (var n = h.nextSibling; n; n = n.nextSibling) nodes.push(n);
+      nodes.forEach(function (nd) { body.appendChild(nd); });
+      card.appendChild(body);
+      var key = S.tab + '#' + idx + '#' + (h.textContent || '').slice(0, 12);
+      /* 角色页默认收起；其余页默认展开。点过之后按用户的选择记忆。 */
+      var folded = (S.tab === 'characters') ? S.coll[key] !== false : S.coll[key] === true;
+      var btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'foldbtn';
+      btn.textContent = folded ? '▸ 展开' : '▾ 收起';
+      h.appendChild(btn);
+      if (folded) body.style.display = 'none';
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        S.coll[key] = !S.coll[key];
+        if (S.coll[key]) { body.style.display = 'none'; btn.textContent = '▸ 展开'; }
+        else { body.style.display = ''; btn.textContent = '▾ 收起'; }
+      });
+    });
+  }
+
+  /* ── 渲染 ── */
+  function render() {
+    tabBar();
+    $('build').textContent = 'b' + BUILD;
+    var v = $('view');
+    if (S.err && !S.reader && !S.genEd) {
+      v.innerHTML = '<div class="err">读取失败：' + esc(S.err) +
+        '<div class="muted" style="margin-top:6px">点顶栏「刷新」重试。</div></div>';
+      return;
+    }
+    if (!S.data) { v.innerHTML = '<div class="note">正在读取…</div>'; return; }
+    if (S.genEd) { v.innerHTML = vGenEd(); decorateCards(); bindGenEd(); return; }
+    if (S.reader) { v.innerHTML = vReader(); decorateCards(); bindReader(); return; }
+    var fns = { overview: vOverview, chapters: vChapters, gate: vGate, audit: vAudit,
+                characters: vCharacters, foreshadows: vForeshadows, relations: vRelations,
+                timeline: vTimeline, world: vWorld, index: vIndex, style: vStyle,
+                project: vProject, search: vSearch, tools: vTools, history: vHistory };
+    v.innerHTML = (fns[S.tab] || vOverview)(S.data);
+    decorateCards();
+    bindChapters();
+    if (S.tab === 'relations') { drawGraph(); bindRelMaint(); }
+    if (S.tab === 'search') bindSearch();
+    if (S.tab === 'gate') bindGate();
+    if (S.tab === 'audit') bindAudit();
+    if (S.tab === 'foreshadows') bindFore();
+    if (S.tab === 'style') bindStyle();
+    if (S.tab === 'project') bindProj();
+    if (S.tab === 'tools') bindTools();
+    if (S.tab === 'history') bindHistory();
+    var q = $('q');
+    if (q) {
+      q.addEventListener('input', function () {
+        S.q = q.value;
+        var pos = q.selectionStart;
+        render();
+        var q2 = $('q'); if (q2) { q2.focus(); try { q2.setSelectionRange(pos, pos); } catch (e) {} }
+      });
+    }
+  }
+
+  function bindChapters() {
+    Array.prototype.forEach.call(document.querySelectorAll('.chap'), function (b) {
+      b.addEventListener('click', function () { openChapter(b.getAttribute('data-file')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.editcard'), function (b) {
+      b.addEventListener('click', function () { cardEditor(b.getAttribute('data-title'), b.getAttribute('data-rel')); });
+    });
+  }
+
   function loadState() {
     if (!S.ws) { S.data = null; S.err = '没有可用的工作区'; render(); return Promise.resolve(); }
     S.err = '';
-    return get('state', { path: S.ws }).then(function (d) {
-      if (!d || d.ok === false) { S.data = null; S.err = (d && d.error) || '状态快照为空'; }
-      else S.data = d;
+    S.gates = null; S.audit = null; S.check = null; S.style = null; S.proj = null;
+    S.trash = null; S.slim = null; S.git = null; S.gitLog = null; S.versions = null;
+    S.gateOne = null; S.reader = null; S.genEd = null; S.graphSel = -1; S.progress = null;
+    S.setup = null; S.cast = null; S.relChap = ''; S.castFilter = null; S.dedupe = null; S.autofill = null; S.handoff = null; S.lclean = null; S.searchRes = null;
+    get('progress', wsQuery()).then(function (d) {
+      S.progress = d;
+      if (S.tab === 'overview') render();
+    }).catch(function () {});
+    var ck = 'state.' + S.ws;
+    var cached = cacheGet(ck);
+    if (cached && !S.data) {
+      S.data = cached;
       render();
-    }).catch(function (e) { S.data = null; S.err = String((e && e.message) || e); render(); });
+      loadGates();
+    }
+    return get('state', { path: S.ws }).then(function (d) {
+      if (!d || d.ok === false) {
+        if (!cached) { S.data = null; S.err = (d && d.error) || '状态快照为空'; }
+      } else {
+        S.data = d;
+        cacheSet(ck, d);
+      }
+      render();
+      loadGates();
+    }).catch(function (e) {
+      if (!cached) { S.data = null; S.err = String((e && e.message) || e); }
+      render();
+    });
   }
 
   function boot() {
     $('build').textContent = 'b' + BUILD;
     get('workspaces').then(function (d) {
       var list = (d && d.workspaces) || [];
+      S.wsList = list;
       var sel = $('ws');
       sel.innerHTML = list.map(function (w, i) {
         return '<option value="' + esc(w.path) + '"' + (w.hasNovel ? '' : ' disabled') + '>' +
@@ -385,11 +1499,11 @@ var BUILD = '3.2.0';
   document.addEventListener('click', function (ev) {
     var t = ev.target;
     if (t && t.getAttribute && t.getAttribute('data-tab')) {
-      S.tab = t.getAttribute('data-tab'); S.reader = null; render(); window.scrollTo(0, 0);
+      S.tab = t.getAttribute('data-tab'); S.reader = null; S.genEd = null; S.graphSel = -1; render(); window.scrollTo(0, 0);
     }
   });
   $('ws').addEventListener('change', function () {
-    S.ws = $('ws').value; S.reader = null;
+    S.ws = $('ws').value;
     try { localStorage.setItem('xiaoyu.ws.panel', S.ws); } catch (e) {}
     loadState();
   });
@@ -397,13 +1511,14 @@ var BUILD = '3.2.0';
     note('正在重新读取…');
     loadState().then(function () { note('已刷新 ' + new Date().toLocaleTimeString()); });
   });
+  function upmsg(t) { var el = $('upmsg'); if (el) el.textContent = t || ''; }
   $('btnCheck').addEventListener('click', function () {
-    note('正在检测更新…');
+    upmsg('正在检测更新…');
     fetch(API + 'update-check?fresh=1').then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.updateAvailable) note('有新版本 v' + d.latest + '（当前 v' + d.current + '）');
-      else if (d && d.error) note('检测失败：' + d.error);
-      else note('已是最新（v' + ((d && d.current) || '?') + ' · ' + new Date().toLocaleTimeString() + '）');
-    }).catch(function (e) { note('检测失败：' + ((e && e.message) || e)); });
+      if (d && d.updateAvailable) upmsg('有新版本 v' + d.latest + '（当前 v' + d.current + '）');
+      else if (d && d.error) upmsg('检测失败：' + d.error);
+      else upmsg('已是最新（v' + ((d && d.current) || '?') + ' · ' + new Date().toLocaleTimeString() + '）');
+    }).catch(function (e) { upmsg('检测失败：' + ((e && e.message) || e)); });
   });
   $('btnDiag').addEventListener('click', function () {
     var payload = { tag: 'standalone-panel', build: BUILD, shellBranch: 'standalone',
@@ -412,7 +1527,7 @@ var BUILD = '3.2.0';
         chapters: chapterList().length, err: S.err, reading: !!(S.reader && S.reader.file) } };
     try { fetch(API + 'client-diag', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload), keepalive: true }); } catch (e) {}
-    note('自检已发送（服务端 xiaoyu-diag.log）');
+    upmsg('自检已发送（服务端 xiaoyu-diag.log）');
   });
 
   render();
