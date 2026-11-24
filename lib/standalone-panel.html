@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.15.0';
+var BUILD = '3.15.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1683,6 +1683,7 @@ var BUILD = '3.15.0';
           (active ? '#4b8bf5' : '#2a3346') + ';border-radius:10px;background:' +
           (active ? '#1a2740' : '#141925') + ';cursor:pointer;display:flex;flex-direction:column;gap:4px">' +
           '<span style="font-size:13px;font-weight:700;color:' + (active ? '#9cc0ff' : '#dfe6f0') + '">' + esc(label) + (active ? ' ✓' : '') + '</span>' +
+          '<span style="font-size:10px;color:' + (p.group === '商业' ? '#ffb454' : (p.group === '文学' ? '#5cc9ff' : '#8d939c')) + ';border:1px solid currentColor;border-radius:4px;padding:0 4px;align-self:flex-start">' + esc(p.group || '未分类') + '</span>' +
           (p.desc ? '<span style="font-size:11px;color:#8d939c;line-height:1.5">' + esc(p.desc) + '</span>' : '') +
           '</button>';
       }).join('') + '</div>';

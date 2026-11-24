@@ -2390,9 +2390,19 @@ function styleRegisterDesc(register) {
     return ''
   }
 }
+/** 档位分类（3.15.1）：<!-- group: 商业|文学 -->——商业=平台写法（番茄/起点/七猫），文学=文字技法。 */
+function styleRegisterGroup(register) {
+  try {
+    const text = readFileSync(path.join(STYLE_PRESET_DIR, register + '.md'), 'utf8')
+    const m = /<!--\s*group:\s*(商业|文学)\s*-->/.exec(text)
+    return m ? m[1] : ''
+  } catch {
+    return ''
+  }
+}
 
         if (route === 'style-presets' && req.method === 'GET') {
-          json(res, 200, { ok: true, items: listStyleRegisters().map((register) => ({ register, label: styleRegisterLabel(register), desc: styleRegisterDesc(register) })) })
+          json(res, 200, { ok: true, items: listStyleRegisters().map((register) => ({ register, label: styleRegisterLabel(register), desc: styleRegisterDesc(register), group: styleRegisterGroup(register) })) })
           return
         }
 
@@ -2416,7 +2426,7 @@ function styleRegisterDesc(register) {
           }
           const lines = snippet.split('\n')
           // 3.15.0：desc 特点注释不进正文（它是给面板卡片看的，不是给写手的）。
-          const sectionBody = lines.slice(1).filter((l) => !/^<!--\s*desc:/.test(l)).join('\n').trim()
+          const sectionBody = lines.slice(1).filter((l) => !/^<!--\s*(desc|group):/.test(l)).join('\n').trim()
           const style = readStyleState(novelDir)
           const base = style.found ? style.text : style.template
           const replaceSection = (text, heading, inner) => {
