@@ -97,7 +97,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.6.0';
+var BUILD = '3.6.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -126,6 +126,28 @@ var BUILD = '3.6.0';
     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
   function note(t) { $('note').textContent = t || ''; }
   function confirmAct(msg) { return window.confirm(msg); }
+  /* 工作台风格的确认弹层：暗幕 + 卡片，替代原生 confirm。 */
+  function askModal(msg, onOk, okLabel) {
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:99;background:rgba(6,8,10,.6);display:flex;align-items:center;justify-content:center;padding:20px';
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.style.cssText = 'max-width:420px;width:100%;margin:0';
+    var body = document.createElement('div');
+    body.style.cssText = 'margin:6px 0 12px;white-space:pre-wrap;font-size:14px';
+    body.textContent = msg;
+    var row = document.createElement('div');
+    row.className = 'btnrow';
+    row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin:0';
+    var no = document.createElement('button'); no.type = 'button'; no.className = 'sm'; no.textContent = '取消';
+    var yes = document.createElement('button'); yes.type = 'button'; yes.className = 'sm warn'; yes.textContent = okLabel || '确认执行';
+    row.appendChild(no); row.appendChild(yes);
+    card.appendChild(body); card.appendChild(row); wrap.appendChild(card);
+    document.body.appendChild(wrap);
+    no.addEventListener('click', function () { wrap.remove(); });
+    wrap.addEventListener('click', function (ev) { if (ev.target === wrap) wrap.remove(); });
+    yes.addEventListener('click', function () { wrap.remove(); onOk(); });
+  }
 
   function get(path, params) {
     var qs = [];
@@ -1038,13 +1060,7 @@ var BUILD = '3.6.0';
   function vTools() {
     ensureTools();
     var q = '?path=' + encodeURIComponent(S.ws);
-    var out = '<div class="card"><h3>导出</h3><div style="display:flex;gap:6px;flex-wrap:wrap">' +
-      ['md','txt','epub','docx'].map(function (f) {
-        return '<a class="sm" style="display:inline-block;padding:5px 10px;border:1px solid #3d424a;border-radius:8px;text-decoration:none" ' +
-          'href="' + API + 'export-book' + q + '&format=' + f + '">整本导出 ' + f.toUpperCase() + '</a>';
-      }).join('') + '</div>' +
-      '<div class="btnrow"><button type="button" id="btnCsv" class="sm">导出章节清单 CSV</button>' +
-      '<button type="button" id="btnReindex" class="sm">重建索引板</button></div></div>';
+    var out = '<div class="card"><h3>索引</h3><div class="btnrow"><button type="button" id="btnReindex" class="sm">重建索引板</button></div></div>';
     out += '<div class="card"><h3>回收站' + (S.trash ? ' <span class="badge">' + ((S.trash.items || []).length) + ' 项</span>' : '') + '</h3>';
     if (!S.trash) out += '<div class="muted">读取中…</div>';
     else if (!(S.trash.items || []).length) out += '<div class="muted ok">回收站是空的 ✓</div>';
@@ -1087,7 +1103,8 @@ var BUILD = '3.6.0';
       ['md','txt','epub','docx'].map(function (f) {
         return '<a class="sm" style="display:inline-block;padding:5px 10px;border:1px solid #3d424a;border-radius:8px;text-decoration:none" href="' + API + 'export-book?path=' + encodeURIComponent(S.ws) + '&format=' + f + '">整本 ' + f.toUpperCase() + '</a>';
       }).join('') + '</div>' +
-      '<div class="muted" style="margin-top:6px">平台通用格式：TXT（番茄/七猫直传）· DOCX（起点后台）· EPUB（留存）</div></div>';
+      '<div class="btnrow" style="margin-top:6px"><button type="button" id="btnCsv" class="sm">导出章节清单 CSV</button></div>' +
+      '<div class="muted">平台通用格式：TXT（番茄/七猫直传）· DOCX（起点后台）· EPUB（留存）</div></div>';
     out += '<div class="card"><h3>章节交接卡</h3>' +
       '<input id="hoFile" placeholder="章节文件名（如 v01-c047.md）" style="width:100%">' +
       '<div class="btnrow"><button type="button" id="btnHandoff" class="sm">生成交接卡（写下一章的前提全在这）</button></div>';
@@ -1223,11 +1240,12 @@ var BUILD = '3.6.0';
     });
     var su = $('btnSelfUpd');
     if (su) su.addEventListener('click', function () {
-      if (!confirmAct('从 GitHub 检查并自更新插件？更新后需重启 Web 进程生效。')) return;
-      note('自更新中…（可能要一会儿）');
-      postJson('self-update', {}).then(function (d) {
-        note(d && d.ok ? '更新完成：' + (d.to || d.tag || '') + '（重启后生效）' : '没有更新：' + ((d && d.error) || (d && d.kind) || ''));
-      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      askModal('从 GitHub 检查并自更新插件？\n更新后需要重启 Web 进程才生效。', function () {
+        note('自更新中…（可能要一会儿）');
+        postJson('self-update', {}).then(function (d) {
+          note(d && d.ok ? '更新完成：' + (d.to || d.tag || '') + '（重启后生效）' : '没有更新：' + ((d && d.error) || (d && d.kind) || ''));
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      }, '开始更新');
     });
   }
 
