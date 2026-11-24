@@ -85,7 +85,17 @@
   body.light .body,body.light canvas{background:#fafbfc}
   body.light nav.tabs button{color:#565c66}
   body.light nav.tabs button[aria-current="true"]{color:#111;background:#e6e9ef}
-</style></head>
+  /* ── 3.14.0 时间线：垂直轴 + 发光节点 + 折叠卡片 ── */
+  .tl{position:relative;margin:10px 0 4px 10px;padding-left:24px;border-left:2px solid #26324a}
+  .tlItem{position:relative;margin:12px 0;padding:10px 12px;background:#161b26;border:1px solid #232c3c;border-radius:10px}
+  .tlItem:before{content:"";position:absolute;left:-31px;top:15px;width:10px;height:10px;border-radius:50%;background:var(--tc,#5cc9ff);box-shadow:0 0 0 3px #131720,0 0 9px var(--tc,#5cc9ff)}
+  .tlDay{font-weight:700;color:#e8ecf3;font-size:13.5px}
+  .tlTitle{color:#c8d2e0;font-size:13px;margin-top:3px;line-height:1.55}
+  .tlMeta{display:flex;gap:8px;align-items:center;margin-top:5px}
+  .tlDesc{color:#8b93a3;font-size:12px;line-height:1.6;margin-top:5px;max-height:44px;overflow:hidden;transition:max-height .3s}
+  .tlDesc.open{max-height:2000px}
+  .tlMore{color:#5d8ecf;font-size:11.5px;background:none;border:none;padding:2px 0;cursor:pointer;text-align:left;display:block}
+  .tlVol{margin:16px 0 6px;padding:6px 12px;background:#1a2233;border-radius:8px;font-weight:700;color:#dbe4f0;font-size:13.5px;display:flex;gap:8px;align-items:center}</style></head>
 <body>
 
 <div class="bar">
@@ -106,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.13.1';
+var BUILD = '3.14.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1556,13 +1566,84 @@ var BUILD = '3.13.1';
   }
 
 
+  /* ── 3.14.0 时间线重做：垂直轴 + 卷分组 + 首句精炼 + 折叠细节 ── */
+  function tlDayNum(y) {
+    var mm = /第(\d+)天/.exec(String(y || ''));
+    return mm ? Number(mm[1]) : null;
+  }
+  function tlFirstSentence(t) {
+    var s = String(t || '');
+    var cut = s.split(/[：:→]/)[0];
+    return cut.length >= s.length ? s : cut + ' …';
+  }
+  function tlColor(imp) {
+    return imp >= 5 ? '#ff6b7d' : (imp >= 4 ? '#ffb454' : (imp >= 3 ? '#5cc9ff' : '#7f93ad'));
+  }
   function vTimeline(d) {
-    var list = d.timeline || [];
+    var list = (d.timeline || []).slice();
     if (!list.length) return '<div class="card"><div class="muted">还没有时间线</div></div>';
-    return '<div class="card"><h3>时间线 ' + list.length + ' 条</h3>' + list.map(function (t) {
-      return '<div class="row"><span class="k">' + esc(t.year || t.chapter || '') + '</span><span class="v">' +
-        esc(t.title || '') + (t.description ? '<div class="muted">' + esc(t.description) + '</div>' : '') + '</span></div>';
-    }).join('') + '</div>';
+    list.sort(function (a, b) {
+      var da = tlDayNum(a.year), db = tlDayNum(b.year);
+      if (da != null && db != null) return da - db;
+      if (da != null) return -1;
+      if (db != null) return 1;
+      var ca = chapOrd(a.chapter), cb = chapOrd(b.chapter);
+      if (ca != null && cb != null) return ca - cb;
+      return 0;
+    });
+    var groups = [], byVol = {};
+    list.forEach(function (t) {
+      var ch = String(t.chapter || '');
+      var vol = /^v\d+/.test(ch) ? ch.slice(0, 3) : '未挂卷';
+      if (!byVol[vol]) { byVol[vol] = []; groups.push(vol); }
+      byVol[vol].push(t);
+    });
+    var days = list.map(function (t) { return tlDayNum(t.year); }).filter(function (n) { return n != null; });
+    var span = days.length ? (Math.max.apply(null, days) - Math.min.apply(null, days) + 1) : 0;
+    var html = '<div class="card"><h3>时间线 <span class="badge">' + list.length + ' 事件 · ' + groups.length + ' 卷 · 故事内跨度 ' + span + ' 天</span></h3>' +
+      '<input id="tlFilter" placeholder="过滤关键词（人物/事件/物件）…" style="width:100%;margin-bottom:10px">';
+    groups.forEach(function (vol) {
+      var items = byVol[vol];
+      html += '<div class="tlVol">' + esc(vol === '未挂卷' ? '未挂卷' : '卷 ' + vol.slice(1)) + '<span class="badge">' + items.length + ' 条</span></div><div class="tl">';
+      items.forEach(function (t) {
+        var imp = Number(t.importance || 0);
+        var desc = String(t.description || '');
+        var hasDesc = desc.length > 80;
+        var prev = desc.slice(0, 80) + (hasDesc ? '…' : '');
+        html += '<div class="tlItem" style="--tc:' + tlColor(imp) + '">' +
+          '<div class="tlDay">' + esc(t.year || '未记日') +
+          (t.chapter ? ' <button type="button" class="sm tlChap" data-file="' + esc(t.chapter) + '.md">' + esc(t.chapter) + '</button>' : '') + '</div>' +
+          '<div class="tlTitle">' + esc(tlFirstSentence(t.title)) + '</div>' +
+          (imp ? '<div class="tlMeta"><span class="muted" style="font-size:11px">重要度</span><span style="letter-spacing:2px;color:' + tlColor(imp) + '">' + String('●●●●●').slice(0, Math.min(5, imp)) + '</span></div>' : '') +
+          (desc ? '<div class="tlDesc" data-prev="' + esc(prev) + '" data-full="' + esc(desc) + '">' + esc(prev) +
+            (hasDesc ? '<button type="button" class="tlMore">展开全文（' + desc.length + ' 字）</button>' : '') + '</div>' : '') +
+          '</div>';
+      });
+      html += '</div>';
+    });
+    return html + '</div>';
+  }
+  function bindTimeline() {
+    var f = $(('tlFilter'));
+    if (f) f.addEventListener('input', function () {
+      var q = f.value.trim();
+      Array.prototype.forEach.call(document.querySelectorAll('.tlItem'), function (it) {
+        it.style.display = (!q || it.textContent.indexOf(q) >= 0) ? '' : 'none';
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.tlMore'), function (b) {
+      b.addEventListener('click', function () {
+        var d = b.parentElement;
+        var open = d.classList.toggle('open');
+        var full = d.getAttribute('data-full') || '';
+        var prev = d.getAttribute('data-prev') || '';
+        d.childNodes[0].nodeValue = open ? full : prev;
+        b.textContent = open ? '收起' : '展开全文（' + full.length + ' 字）';
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.tlChap'), function (b) {
+      b.addEventListener('click', function () { openChapter(b.getAttribute('data-file')); });
+    });
   }
   function vIndex(d) {
     var clues = d.clues || [], mem = d.memories || [];
@@ -2401,6 +2482,7 @@ var BUILD = '3.13.1';
     if (S.tab === 'audit') { bindAudit(); bindTodo(); }
     if (S.tab === 'todo') bindTodo();
     if (S.tab === 'foreshadows') bindFore();
+    if (S.tab === 'timeline') bindTimeline();
     if (S.tab === 'style') bindStyle();
     if (S.tab === 'project') bindProj();
     if (S.tab === 'tools') bindTools();
