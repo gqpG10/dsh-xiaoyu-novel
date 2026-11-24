@@ -19,7 +19,9 @@ const source = readFileSync(path.join(root, 'lib/client.js'), 'utf8')
 test('入口成对注册：main.key 与 panellist.id 同为 xiaoyu-novel-creator', () => {
   assert.match(source, /var PANEL_ID = "xiaoyu-novel-creator"/)
   assert.match(source, /register\(\{ name: "main", key: PANEL_ID \}/)
-  assert.match(source, /register\(\{ name: "sidebar\.panellist", id: PANEL_ID, order: PANEL_ORDER, label: "小鱼创作台" \}/)
+  // 3.11.1：label 改函数 + 补 locale（对齐 dshmarket 写法，宿主 i18n 路径才取得到）
+  // 3.11.1：label 改函数 + 补 locale（对齐 dshmarket 写法，宿主 i18n 路径才取得到）
+  assert.ok(source.includes("register({ name: \"sidebar.panellist\", id: PANEL_ID, order: PANEL_ORDER, label: function () { return \"\u5c0f\u9c7c\u521b\u4f5c\u53f0\"; }, locale: \"xiaoyu-novel\" }"), "panellist \u6ce8\u518c\u884c\u5fc5\u987b\u542b\u51fd\u6570 label + locale")
   assert.match(source, /selectPanel === "function"/)
 })
 
@@ -32,6 +34,16 @@ test('面板正文：iframe 挂独立版面板（3.2.1 起黑屏源 PageShell �
   assert.ok(frames >= 3, 'main 槽/overlay/右侧栏 tab 三处都要 iframe 挂独立版，实际 ' + frames)
   // 黑屏源必须彻底退出创作台主面板的渲染（ReaderTabBody 的阅读页除外）
   assert.doesNotMatch(source, /h\(PageShell/, 'PageShell 不许再被渲染（真机黑屏本体）')
+})
+
+test('入口文字自绘：PanelGlyph 自带 label + SVG 兜底（3.11.1 修 Windows 只显示图标）', () => {
+  // 本宿主的 panellist 行不绘制 options.label（对照 dshmarket：label 走函数 +
+  // locale）。槽内容必须自带文字，任何宿主都能显示。
+  assert.match(source, /function PanelGlyph\(props\)/)
+  const glyph = source.slice(source.indexOf('function PanelGlyph'), source.indexOf('var disposers'))
+  assert.match(glyph, /小鱼创作台/, 'PanelGlyph 必须渲染文字')
+  assert.match(glyph, /viewBox: "0 0 16 16"/, '图标名缺失时的 SVG 兜底必须在')
+  assert.match(glyph, /if \(!icon\) \{/, 'ic() 返回 null 时必须兜底，不许整行空白')
 })
 
 test('注册失败退回底部入口 + 中栏 overlay（老宿主不丢功能）', () => {
