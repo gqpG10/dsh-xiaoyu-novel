@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.15.2';
+var BUILD = '3.15.3';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -144,10 +144,8 @@ var BUILD = '3.15.2';
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
   function note(t) { $('note').textContent = t || ''; }
-  function confirmAct(msg, onOk) {
-    if (typeof onOk === 'function') { askModal(msg, onOk); return true; }
-    return window.confirm(msg);
-  }
+  /* 3.15.3：确认弹窗统一走工作台样式弹层（暗幕+卡片），不再用原生 confirm。 */
+  function confirmAct(msg, onOk) { askModal(msg, onOk); }
   function escRe(s) { return String(s).replace(/[\.*+?^${}()|[\]\\]/g, '\\$&'); }
   function hlText(text, q) {
     var safe = esc(text);
@@ -771,12 +769,13 @@ var BUILD = '3.15.2';
     });
     var da = $('btnDedupeApply');
     if (da) da.addEventListener('click', function () {
-      if (!confirmAct('合并 ' + ((S.dedupe && S.dedupe.merged) || 0) + ' 组重复关系？描述按章拼接、强度取最大，写前自动备份。')) return;
-      note('合并中…');
-      postJson('relations-dedupe', { path: S.ws }).then(function (r) {
-        note('已合并，剩 ' + (r.kept != null ? r.kept : '?') + ' 条');
-        S.dedupe = null; loadState();
-      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      confirmAct('合并 ' + ((S.dedupe && S.dedupe.merged) || 0) + ' 组重复关系？描述按章拼接、强度取最大，写前自动备份。', function () {
+        note('合并中…');
+        postJson('relations-dedupe', { path: S.ws }).then(function (r) {
+          note('已合并，剩 ' + (r.kept != null ? r.kept : '?') + ' 条');
+          S.dedupe = null; loadState();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
     });
     var a = $('btnAutofill');
     if (a) a.addEventListener('click', function () {
@@ -786,10 +785,11 @@ var BUILD = '3.15.2';
     var aa = $('btnAutofillApply');
     if (aa) aa.addEventListener('click', function () {
       var list = (S.autofill && (S.autofill.starts || S.autofill.proposals || S.autofill.patches || S.autofill.items)) || [];
-      if (!confirmAct('把 ' + list.length + ' 条候选写入关系账？建议先逐条过目。')) return;
-      postJson('relations-autofill', { path: S.ws, patches: list }).then(function () {
-        note('已写入'); S.autofill = null; loadState();
-      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      confirmAct('把 ' + list.length + ' 条候选写入关系账？建议先逐条过目。', function () {
+        postJson('relations-autofill', { path: S.ws, patches: list }).then(function () {
+          note('已写入'); S.autofill = null; loadState();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
     });
   }
 
@@ -840,13 +840,15 @@ var BUILD = '3.15.2';
       var f = ($('rpFind') || {}).value || '';
       var t = ($('rpTo') || {}).value || '';
       if (!f) { note('先填查找内容'); return; }
-      if (!confirmAct('把全书「' + f + '」替换为「' + t + '」？逐章写入并留快照，建议先预览。')) return;
-      if (!confirmAct('再确认一次：真的全书替换？')) return;
-      note('替换中…');
-      postJson('replace', { path: S.ws, find: f, replace: t }).then(function (r) {
-        note('替换完成：' + (r.changed != null ? r.changed + ' 处' : JSON.stringify(r).slice(0, 120)));
-        loadState(); loadGates();
-      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      confirmAct('把全书「' + f + '」替换为「' + t + '」？逐章写入并留快照，建议先预览。', function () {
+        confirmAct('再确认一次：真的全书替换？', function () {
+          note('替换中…');
+          postJson('replace', { path: S.ws, find: f, replace: t }).then(function (r) {
+            note('替换完成：' + (r.changed != null ? r.changed + ' 处' : JSON.stringify(r).slice(0, 120)));
+            loadState(); loadGates();
+          }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        });
+      });
     });
   }
 
@@ -1692,8 +1694,22 @@ var BUILD = '3.15.2';
       }).join('') + '</div>';
     }
     var text = st.found ? st.text : (st.template || '');
+    /* 3.15.3：档位预览——点卡片只看内容，点「套用此档位」才写入 style.md。 */
+    if (S.presetView) {
+      var pv = S.presetView;
+      return '<div class="card"><h3>档位预览：' + esc(pv.label || pv.register) +
+        ' <span style="font-size:10px;color:' + (pv.group === '商业' ? '#ffb454' : (pv.group === '文学' ? '#5cc9ff' : '#8d939c')) + ';border:1px solid currentColor;border-radius:4px;padding:0 4px;vertical-align:middle">' + esc(pv.group || '未分类') + '</span></h3>' +
+        (pv.desc ? '<div class="muted" style="margin-bottom:8px">' + esc(pv.desc) + '</div>' : '') +
+        (pv.loading ? '<div class="note">正在读取档位内容…</div>' :
+          (pv.err ? '<div class="err">' + esc(pv.err) + '</div>' :
+            '<pre style="white-space:pre-wrap;font-size:12.5px;line-height:1.7;margin:0 0 12px;color:#dfe6f0;background:#141925;border:1px solid #2a3346;border-radius:10px;padding:12px 14px">' + esc(pv.text || '（空）') + '</pre>')) +
+        '<div class="btnrow"><button type="button" id="presetApply" class="sm pri"' + (pv.loading || pv.err ? ' disabled' : '') + '>套用此档位</button>' +
+        '<button type="button" id="presetBack" class="sm">返回列表</button></div>' +
+        '<div class="muted" style="margin-top:6px">套用只改 style.md 的「## 语言」节，其他节不动。</div></div>';
+    }
     return '<div class="card"><h3>写作风格基准' + (st.found ? '' : ' <span class="badge">尚未创建</span>') + '</h3>' +
       presets +
+      '<div class="muted" style="margin-bottom:6px">点卡片预览档位内容，确认后再点「套用此档位」。</div>' +
       '<div class="btnrow"><button type="button" id="styleSave" class="sm pri">' + (st.found ? '保存' : '以模板创建并保存') + '</button></div>' +
       '<textarea id="styleText" class="editor small">' + esc(text) + '</textarea>' +
       '<div class="muted" style="margin-top:6px">外部改过会 409 拒写；改完点保存即生效，不需要重启。</div></div>';
@@ -1710,10 +1726,32 @@ var BUILD = '3.15.2';
     });
     Array.prototype.forEach.call(document.querySelectorAll('.presetBtn'), function (b) {
       b.addEventListener('click', function () {
-        if (!confirmAct('套用语言档位「' + b.getAttribute('data-reg') + '」？只改 style.md 的「## 语言」节。')) return;
+        var reg = b.getAttribute('data-reg');
+        var plist = (S.presets && (S.presets.items || S.presets.presets)) || [];
+        var meta = plist.filter(function (p) { return (p.register || p.id) === reg; })[0] || { register: reg };
+        S.presetView = { register: reg, label: meta.label || reg, desc: meta.desc || '', group: meta.group || '', loading: true, text: '', err: '' };
+        render();
+        get('style-preset', { register: reg }).then(function (d) {
+          if (!S.presetView || S.presetView.register !== reg) return;
+          S.presetView = { register: reg, label: d.label || meta.label || reg, desc: d.desc || meta.desc || '', group: d.group || meta.group || '', text: d.text || '' };
+          render();
+        }).catch(function (e) {
+          if (!S.presetView || S.presetView.register !== reg) return;
+          S.presetView.err = String((e && e.message) || e);
+          S.presetView.loading = false;
+          render();
+        });
+      });
+    });
+    var pb = $('presetBack');
+    if (pb) pb.addEventListener('click', function () { S.presetView = null; render(); });
+    var pa = $('presetApply');
+    if (pa) pa.addEventListener('click', function () {
+      var pv = S.presetView; if (!pv) return;
+      confirmAct('套用语言档位「' + (pv.label || pv.register) + '」？只改 style.md 的「## 语言」节。', function () {
         note('套用档位…');
-        postJson('style-register', { path: S.ws, register: b.getAttribute('data-reg') }).then(function () {
-          note('已套用'); S.style = null; render();
+        postJson('style-register', { path: S.ws, register: pv.register }).then(function () {
+          note('已套用「' + (pv.label || pv.register) + '」'); S.style = null; S.presetView = null; render();
         }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
       });
     });
@@ -1907,10 +1945,11 @@ var BUILD = '3.15.2';
     });
     Array.prototype.forEach.call(document.querySelectorAll('.trashPurge'), function (b) {
       b.addEventListener('click', function () {
-        if (!confirmAct('彻底删除？不可恢复。')) return;
-        postJson('trash-purge', { path: S.ws, id: b.getAttribute('data-id') }).then(function () {
-          note('已删除'); S.trash = null; render();
-        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        confirmAct('彻底删除？不可恢复。', function () {
+          postJson('trash-purge', { path: S.ws, id: b.getAttribute('data-id') }).then(function () {
+            note('已删除'); S.trash = null; render();
+          }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        });
       });
     });
     var sp = $('btnSlimPlan');
@@ -1921,11 +1960,12 @@ var BUILD = '3.15.2';
     });
     var sa = $('btnSlimApply');
     if (sa) sa.addEventListener('click', function () {
-      if (!confirmAct('执行账本归档？搬 ' + ((S.slim && S.slim.moveTotal) || 0) + ' 条到归档文件，主账写前留 .bak。')) return;
-      note('归档中…');
-      postJson('slim-apply', { path: S.ws, before: (S.slim && S.slim.before) || '' }).then(function () {
-        note('归档完成'); S.slim = null; S.trash = null; render(); loadState();
-      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      confirmAct('执行账本归档？搬 ' + ((S.slim && S.slim.moveTotal) || 0) + ' 条到归档文件，主账写前留 .bak。', function () {
+        note('归档中…');
+        postJson('slim-apply', { path: S.ws, before: (S.slim && S.slim.before) || '' }).then(function () {
+          note('归档完成'); S.slim = null; S.trash = null; render(); loadState();
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
     });
     var ag2 = $('aiGate2');
     if (ag2) ag2.addEventListener('click', function () {
@@ -2011,9 +2051,10 @@ var BUILD = '3.15.2';
     });
     var lca = $('btnLcleanApply');
     if (lca) lca.addEventListener('click', function () {
-      if (!confirmAct('执行账本清理？按上面计划压缩/合并条目。')) return;
-      postJson('ledger-clean', { path: S.ws }).then(function () { note('清理完成'); S.lclean = null; S.trash = null; render(); loadState(); })
-        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      confirmAct('执行账本清理？按上面计划压缩/合并条目。', function () {
+        postJson('ledger-clean', { path: S.ws }).then(function () { note('清理完成'); S.lclean = null; S.trash = null; render(); loadState(); })
+          .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
     });
     var wa = $('wsAddBtn');
     if (wa) wa.addEventListener('click', function () {
@@ -2023,9 +2064,10 @@ var BUILD = '3.15.2';
     });
     Array.prototype.forEach.call(document.querySelectorAll('.wsRemove'), function (b) {
       b.addEventListener('click', function () {
-        if (!confirmAct('移除工作区登记（不动磁盘文件）？')) return;
-        postJson('workspace-remove', { path: b.getAttribute('data-path') }).then(function () { note('已移除'); boot(); })
-          .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        confirmAct('移除工作区登记（不动磁盘文件）？', function () {
+          postJson('workspace-remove', { path: b.getAttribute('data-path') }).then(function () { note('已移除'); boot(); })
+            .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        });
       });
     });
     var su = $('btnSelfUpd');
@@ -2119,11 +2161,12 @@ var BUILD = '3.15.2';
       b.addEventListener('click', function () {
         var file = S.versionsFile;
         if (!file) { note('先在上面选一章'); return; }
-        if (!confirmAct('把「' + file + '」回滚到提交 ' + b.getAttribute('data-rev').slice(0, 8) + '？当前正文会先自动留快照。')) return;
-        note('回滚中…');
-        postJson('git-restore', { path: S.ws, rel: 'chapters/' + file, rev: b.getAttribute('data-rev') }).then(function () {
-          note('已回滚'); loadState(); if (S.reader) openChapter(S.reader.file);
-        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        confirmAct('把「' + file + '」回滚到提交 ' + b.getAttribute('data-rev').slice(0, 8) + '？当前正文会先自动留快照。', function () {
+          note('回滚中…');
+          postJson('git-restore', { path: S.ws, rel: 'chapters/' + file, rev: b.getAttribute('data-rev') }).then(function () {
+            note('已回滚'); loadState(); if (S.reader) openChapter(S.reader.file);
+          }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        });
       });
     });
   }
@@ -2332,12 +2375,13 @@ var BUILD = '3.15.2';
     if (dc2) dc2.addEventListener('click', function () { S.diff = null; render(); });
     var gu = $('btnGateUndo');
     if (gu) gu.addEventListener('click', function () {
-      if (!confirmAct('撤销最近一次自动修，正文恢复到修改前？')) return;
-      postJson('gate-undo', { path: S.ws, file: S.reader.file }).then(function (d) {
-        note('已撤销（回到人味 ' + d.human + '）');
-        S.gateOne = null; S.cast = null;
-        openChapter(S.reader.file);
-      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      confirmAct('撤销最近一次自动修，正文恢复到修改前？', function () {
+        postJson('gate-undo', { path: S.ws, file: S.reader.file }).then(function (d) {
+          note('已撤销（回到人味 ' + d.human + '）');
+          S.gateOne = null; S.cast = null;
+          openChapter(S.reader.file);
+        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
     });
     var fa = $('btnFixAll');
     if (fa) fa.addEventListener('click', function () {
@@ -2345,16 +2389,15 @@ var BUILD = '3.15.2';
       postJson('gate-fix-all', { path: S.ws, file: S.reader.file, preview: true }).then(function (d) {
         if (!d.count) { note('没有可自动处理的病灶句'); return; }
         var sample = (d.items || []).slice(0, 3).map(function (it) { return '· ' + it.before.slice(0, 30) + ' → ' + it.after.slice(0, 30); }).join('\n');
-        if (!confirmAct('可保守修 ' + d.count + ' 句（人味 ' + d.before.h + ' → ' + d.after.h + '）。只删副词/拆长句/打散并列，不动情节。执行？\n' + sample)) {
-          note('已取消'); return;
-        }
-        note('执行一键修…');
-        postJson('gate-fix-all', { path: S.ws, file: S.reader.file }).then(function (d2) {
-          note('已修 ' + d2.count + ' 句，人味 ' + d2.before.h + ' → ' + d2.after.h);
-          S.gateOne = null;
-          openChapter(S.reader.file);
-          loadGates();
-        }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        confirmAct('可保守修 ' + d.count + ' 句（人味 ' + d.before.h + ' → ' + d.after.h + '）。只删副词/拆长句/打散并列，不动情节。执行？\n' + sample, function () {
+          note('执行一键修…');
+          postJson('gate-fix-all', { path: S.ws, file: S.reader.file }).then(function (d2) {
+            note('已修 ' + d2.count + ' 句，人味 ' + d2.before.h + ' → ' + d2.after.h);
+            S.gateOne = null;
+            openChapter(S.reader.file);
+            loadGates();
+          }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+        });
       }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
     });
     Array.prototype.forEach.call(document.querySelectorAll('.fixOne'), function (b) {
@@ -2561,13 +2604,14 @@ var BUILD = '3.15.2';
     if (sac) sac.addEventListener('click', function () {
       var files = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; });
       if (!files.length) { note('先勾选章节'); return; }
-      if (!confirmAct('把 ' + files.length + ' 章一键改为「已定稿」？')) return;
-      note('批量改状态…');
-      var chain = Promise.resolve();
-      files.forEach(function (f) {
-        chain = chain.then(function () { return postJson('chapter-status', { path: S.ws, file: f, status: 'accepted' }).catch(function () {}); });
+      confirmAct('把 ' + files.length + ' 章一键改为「已定稿」？', function () {
+        note('批量改状态…');
+        var chain = Promise.resolve();
+        files.forEach(function (f) {
+          chain = chain.then(function () { return postJson('chapter-status', { path: S.ws, file: f, status: 'accepted' }).catch(function () {}); });
+        });
+        chain.then(function () { note('已定稿 ' + files.length + ' 章'); S.selMode = false; S.selSet = {}; loadState(); });
       });
-      chain.then(function () { note('已定稿 ' + files.length + ' 章'); S.selMode = false; S.selSet = {}; loadState(); });
     });
     Array.prototype.forEach.call(document.querySelectorAll('.selChk'), function (c) {
       c.addEventListener('change', function (ev) {
