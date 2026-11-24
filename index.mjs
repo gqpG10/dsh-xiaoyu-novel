@@ -112,6 +112,7 @@ import {
   saveManagedFile,
   saveStyleText,
 } from './lib/panel-core.mjs'
+import { appendCharacterState, readCharStates } from './lib/panel-core.mjs'
 // 0.15.0 回收站与整本导出/账本瘦身：面板侧工具入口的服务端实现。
 import { archiveApply, archivePlan } from './lib/slim-core.mjs'
 // 0.15.0 账本体检（体积/超长条目）与「本章记账了没」提示。
@@ -2892,6 +2893,24 @@ function styleRegisterLabel(register) {
           const novelDir = resolveNovelRoot(url.searchParams.get("path"), ctx.workspaceRegistry)
           const model = buildHandoff(novelDir, url.searchParams.get("file"))
           json(res, 200, { ...model, markdown: renderHandoff(model) })
+          return
+        }
+
+        if (route === 'character-states' && req.method === 'GET') {
+          // 角色状态时点账（3.11.0）：整份读出，面板工具页列表与校验用。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          json(res, 200, { ok: true, states: readCharStates(novelDir) })
+          return
+        }
+
+        if (route === 'character-state' && req.method === 'POST') {
+          // 角色状态时点账（3.11.0）：每章收尾记一笔角色状态变化；写第 N 章时
+          // 交接卡自动带「截至 N」的状态链还原时点角色卡。只追加，绝不改旧条目。
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const result = appendCharacterState(novelDir, { chapter: body.chapter, character: body.character, note: body.note })
+          if (result.ok) invalidateAllCaches()
+          json(res, 200, result)
           return
         }
 
