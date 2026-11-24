@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.12.0';
+var BUILD = '3.12.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -715,15 +715,20 @@ var BUILD = '3.12.0';
     return out + '</div>';
   }
   function bindRelMaint() {
-    function setZoom(z) {
-      S.graphZoom = Math.min(3, Math.max(0.5, Math.round(z * 20) / 20));
-      try { localStorage.setItem('xiaoyu.graphZoom', String(S.graphZoom)); } catch (e) {}
-      render();
-    }
-    var gin = $('gzIn'), gout = $('gzOut'), grst = $('gzReset');
-    if (gin) gin.addEventListener('click', function () { setZoom((S.graphZoom || 1) + 0.25); });
-    if (gout) gout.addEventListener('click', function () { setZoom((S.graphZoom || 1) - 0.25); });
-    if (grst) grst.addEventListener('click', function () { setZoom(1); });
+    var fit = $('gFit'), shake = $('gShake'), skel = $('gSkel');
+    if (fit) fit.addEventListener('click', function () { if (S._graph) { S._graph.needFit = true; } });
+    if (shake) shake.addEventListener('click', function () {
+      if (S._graph) {
+        S._graph.nodes.forEach(function (n) {
+          var ang = Math.random() * Math.PI * 2;
+          var rr = 60 + Math.random() * 180;
+          n.x = 320 + Math.cos(ang) * rr; n.y = 300 + Math.sin(ang) * rr;
+          n.vx = n.vy = 0; n.fx = n.fy = null;
+        });
+        S._graph.alpha = 1; S._graph.needFit = true;
+      }
+    });
+    if (skel) skel.addEventListener('click', function () { S.graphSkel = !S.graphSkel; render(); });
     var rc = $('relChap');
     if (rc) {
       var onPick = function () {
@@ -1001,13 +1006,12 @@ var BUILD = '3.12.0';
       '<select id="relChap" style="width:100%;margin-bottom:8px">' + chOpts + '</select>' +
       '<div class="muted" style="margin-bottom:6px">' + (S.castFilter ? '本章出场角色之间的关系 ' + shown.length + ' 条' : '全书关系 ' + list.length + ' 条') + '</div>' +
       '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">' +
-      '<button type="button" id="gzOut" class="sm">−</button>' +
-      '<span id="gzLabel" class="muted" style="min-width:3.2em;text-align:center;font-size:12px">' + Math.round((S.graphZoom || 1) * 100) + '%</span>' +
-      '<button type="button" id="gzIn" class="sm">＋</button>' +
-      '<button type="button" id="gzReset" class="sm">重置</button>' +
-      '<span class="muted" style="font-size:11px">图上双指捏合也能缩放 · 放大后可拖动</span></div>' +
-      '<div style="overflow:auto;-webkit-overflow-scrolling:touch">' +
-      '<canvas id="relcv" width="640" height="640" data-n="' + names.length + '" style="touch-action:pan-y"></canvas></div>' +
+      '<button type="button" id="gFit" class="sm">适应画布</button>' +
+      '<button type="button" id="gShake" class="sm">重新布局</button>' +
+      '<button type="button" id="gSkel" class="sm">' + (S.graphSkel ? '骨架模式（显主要）' : '全显模式（显全部）') + '</button>' +
+      '<span class="muted" style="font-size:11px;margin-left:auto">拖节点 · 空白拖动平移 · 滚轮/双指缩放 · 点节点看关系</span></div>' +
+      '<div style="position:relative">' +
+      '<canvas id="relcv" width="640" height="520" data-n="' + names.length + '" style="touch-action:none;width:100%;height:520px;display:block;border-radius:10px"></canvas></div>' +
       (S.graphSel >= 0 && names[S.graphSel] ? '<div class="muted" style="margin-top:6px">选中：' + esc(names[S.graphSel]) + '</div>' : '') +
       '</div><div class="card"><h3>关系 ' + list.length + ' 条</h3>' + listHtml + '</div>';
   }
@@ -1023,21 +1027,11 @@ var BUILD = '3.12.0';
         score[n] += Number(r.intensity || 1);
       });
     });
-    /* 主角 = 关系权重最高的角色，放正中；其余按重要程度降序上环。 */
     names.sort(function (x, y) { return score[y] - score[x]; });
-    var W = 640, H = 640, cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 78;
-    var pos = [{ x: cx, y: cy }];
-    var ring = names.slice(1);
-    ring.forEach(function (n, i) {
-      var ang = -Math.PI / 2 + i * 2 * Math.PI / Math.max(ring.length, 1);
-      pos.push({ x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) });
-    });
     function tier(n) {
       var s = score[n] || 0;
       return s >= 25 ? { c: '#ff6b7d', t: '核心' } : (s >= 12 ? { c: '#ffb454', t: '重要' } : (s >= 5 ? { c: '#5cc9ff', t: '次要' } : { c: '#8891a0', t: '边缘' }));
     }
-    /* 关系类型 → 颜色与线型：不同关系一眼可辨（关键词顺序决定优先级：
-       敌对最先，亲情先于恋情——「亲情」不能落进恋情色）。 */
     var relStyles = [
       { k: ['敌', '仇', '恨'], c: '#ff5252', dash: [10, 6], n: '敌对' },
       { k: ['父', '母', '兄', '弟', '姐', '妹', '亲', '家'], c: '#ffb454', dash: [], n: '亲情' },
@@ -1054,8 +1048,6 @@ var BUILD = '3.12.0';
       }
       return { c: '#7f93ad', dash: [], n: '其他' };
     }
-    /* 同一对人物的多条并行关系：图上只画最重要的一条（强度最高），其余折叠成
-       线上标签的「+N」；选中角色看详情卡仍是全量清单，数据一条不丢。 */
     var pairMap = {}, order = [];
     list.forEach(function (r) {
       var ai = names.indexOf(r.a), bi = names.indexOf(r.b);
@@ -1066,205 +1058,352 @@ var BUILD = '3.12.0';
       if (Number(r.intensity || 1) > Number(cur.edge.intensity || 1)) cur.edge = r;
       cur.extra++;
     });
-    var ctx = cv.getContext('2d');
-    /* 高清渲染：按设备像素密度放大位图，坐标系仍用 640 逻辑坐标（防高分屏发糊）。 */
+    var folded = list.length - order.length;
+
+    /* ── 图模型（3.12.1 力导向重写）：S._graph 缓存跨渲染存活，数据签名变了才重建 ── */
+    var sig = names.join('|') + '#' + order.length + '#' + (S.castFilter ? S.castFilter.length : -1);
+    var G = S._graph;
+    if (!G || G.sig !== sig) {
+      var nodes = names.map(function (n, i) {
+        var ang = Math.random() * Math.PI * 2;
+        var rr = i === 0 ? 0 : 60 + Math.random() * 180;
+        return { name: n, x: 320 + Math.cos(ang) * rr, y: 300 + Math.sin(ang) * rr, vx: 0, vy: 0, fx: null, fy: null };
+      });
+      G = S._graph = { sig: sig, nodes: nodes, edges: order.map(function (k) { return pairMap[k]; }), alpha: 1, view: { x: 320, y: 300, scale: 0.9 }, sel: -1, needFit: true };
+    }
+    G.sel = S.graphSel;
+
+    var W = 640, H = 520;
     var dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 2));
-    cv.width = 640 * dpr; cv.height = 640 * dpr;
-    var gz = S.graphZoom || 1;
-    cv.style.width = (gz * 100) + '%';
-    cv.style.maxWidth = 'none';
-    cv.style.height = 'auto';
-    cv.style.display = 'block';
-    cv.style.margin = '0 auto';
+    cv.width = W * dpr; cv.height = H * dpr;
+    var ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    /* 底色柔和渐晕 */
-    var bg = ctx.createRadialGradient(cx, cy, 40, cx, cy, W / 1.4);
-    bg.addColorStop(0, '#1a2130'); bg.addColorStop(1, '#14161a');
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-    ctx.lineWidth = 1.5;
-    var t0 = (Date.now() / 1600) % (2 * Math.PI);
-    order.forEach(function (key) {
-      var p = pairMap[key];
-      var r = p.edge, ai = p.ai, bi = p.bi;
-      var hot = S.graphSel >= 0 && (ai === S.graphSel || bi === S.graphSel);
-      var inten = Math.min(5, Math.max(1, Number(r.intensity || 1)));
-      var st = relStyle(r.type);
-      /* 二次贝塞尔柔和弧线：颜色与线型跟关系类型走，粗细与透明度跟强度走 */
-      var mx0 = (pos[ai].x + pos[bi].x) / 2, my0 = (pos[ai].y + pos[bi].y) / 2;
-      var dx = pos[bi].x - pos[ai].x, dy = pos[bi].y - pos[ai].y;
-      var len = Math.sqrt(dx * dx + dy * dy) || 1;
-      var cxp = mx0 - (dy / len) * 26, cyp = my0 + (dx / len) * 26;
-      ctx.setLineDash(st.dash);
-      ctx.globalAlpha = hot ? 1 : Math.min(0.85, 0.34 + inten * 0.08);
-      ctx.strokeStyle = hot ? '#9cc0ff' : st.c;
-      ctx.lineWidth = hot ? 4 : (1.2 + inten * 0.5);
-      ctx.beginPath(); ctx.moveTo(pos[ai].x, pos[ai].y); ctx.quadraticCurveTo(cxp, cyp, pos[bi].x, pos[bi].y); ctx.stroke();
-      ctx.setLineDash([]); ctx.globalAlpha = 1;
-      /* 选中关系：沿弧线流动的光点 */
-      if (hot) {
-        for (var f = 0; f < 3; f++) {
-          var tt = ((t0 * 0.5 + f / 3) % 1);
-          var qx = (1 - tt) * (1 - tt) * pos[ai].x + 2 * (1 - tt) * tt * cxp + tt * tt * pos[bi].x;
-          var qy = (1 - tt) * (1 - tt) * pos[ai].y + 2 * (1 - tt) * tt * cyp + tt * tt * pos[bi].y;
-          ctx.beginPath(); ctx.arc(qx, qy, 3.2, 0, Math.PI * 2);
-          ctx.fillStyle = '#9cc0ff'; ctx.fill();
+
+    function radiusOf(n) {
+      var s = score[n] || 1;
+      return 9 + Math.min(11, Math.round(s / 3.2));
+    }
+
+    /* 视图变换：屏幕 = (世界 - view中心) * scale + 画布中心 */
+    function toScreen(p) { return { x: (p.x - G.view.x) * G.view.scale + W / 2, y: (p.y - G.view.y) * G.view.scale + H / 2 }; }
+    function toWorld(sx, sy) { return { x: (sx - W / 2) / G.view.scale + G.view.x, y: (sy - H / 2) / G.view.scale + G.view.y }; }
+    function fitView() {
+      var ns = G.nodes;
+      if (!ns.length) return;
+      var minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+      ns.forEach(function (n) {
+        var r = radiusOf(n.name) + 30;
+        minX = Math.min(minX, n.x - r); maxX = Math.max(maxX, n.x + r);
+        minY = Math.min(minY, n.y - r); maxY = Math.max(maxY, n.y + r);
+      });
+      var bw = Math.max(60, maxX - minX), bh = Math.max(60, maxY - minY);
+      G.view.scale = Math.min(2.2, Math.max(0.35, Math.min((W - 40) / bw, (H - 40) / bh)));
+      G.view.x = (minX + maxX) / 2; G.view.y = (minY + maxY) / 2;
+      G.needFit = false;
+    }
+
+    /* 力模拟一步（d3-force 简化版：斥力 + 弹簧 + 向心 + 碰撞） */
+    function tick() {
+      var a = G.alpha;
+      if (a < 0.004) return;
+      var ns = G.nodes;
+      for (var i = 0; i < ns.length; i++) {
+        for (var j = i + 1; j < ns.length; j++) {
+          var dx = ns[j].x - ns[i].x, dy = ns[j].y - ns[i].y;
+          var d2 = dx * dx + dy * dy; if (d2 < 4) d2 = 4;
+          var d = Math.sqrt(d2);
+          var ux = dx / d, uy = dy / d;
+          var rep = (2800 / d2) * a;
+          var coll = d < 56 ? (56 - d) * 0.4 * a : 0;
+          var f = rep + coll;
+          ns[i].vx -= ux * f; ns[i].vy -= uy * f;
+          ns[j].vx += ux * f; ns[j].vy += uy * f;
         }
       }
-      /* 线上标关系类型 */
-      var mxt = (pos[ai].x + pos[bi].x) / 2, myt = (pos[ai].y + pos[bi].y) / 2;
-      mxt = mxt + (cyp - myt) * 0.18; myt = myt + (my0 - cyp) * 0.18;
-      var tag = String(r.type || (r.description && String(r.description).slice(0, 6)) || '').slice(0, 8) + (p.extra ? ' +' + p.extra : '');
-      if (tag) {
-        ctx.font = (hot ? 'bold ' : '') + '15px sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        var tw = ctx.measureText(tag).width;
-        ctx.fillStyle = hot ? '#152643' : '#171b22';
-        ctx.fillRect(mxt - tw / 2 - 6, myt - 11, tw + 12, 22);
-        ctx.strokeStyle = hot ? '#3d5a8a' : st.c;
-        ctx.lineWidth = 1; ctx.strokeRect(mxt - tw / 2 - 6, myt - 11, tw + 12, 22);
-        ctx.fillStyle = hot ? '#9cc0ff' : '#b8c2cf';
-        ctx.fillText(tag, mxt, myt + 1);
-      }
-    });
-    names.forEach(function (n, i) {
-      var hot = i === S.graphSel;
-      var hero = i === 0;
-      var tr = tier(n);
-      var rad = (hot || hero) ? 30 : (15 + Math.min(13, Math.round((score[n] || 1) / 3)));
-      /* 发光光晕：重要性越高越亮 */
-      var glow = ctx.createRadialGradient(pos[i].x, pos[i].y, rad * 0.4, pos[i].x, pos[i].y, rad * 2.4);
-      glow.addColorStop(0, tr.c + '55');
-      glow.addColorStop(1, tr.c + '00');
-      ctx.beginPath(); ctx.arc(pos[i].x, pos[i].y, rad * 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = glow; ctx.fill();
-      /* 主圆体：径向渐变填充 */
-      var bodyGrad = ctx.createRadialGradient(pos[i].x - rad * 0.3, pos[i].y - rad * 0.35, rad * 0.1, pos[i].x, pos[i].y, rad);
-      bodyGrad.addColorStop(0, hot ? '#7fb2ff' : (hero ? '#5d82c4' : '#313d52'));
-      bodyGrad.addColorStop(1, hot ? '#3d6cc4' : (hero ? '#2c4370' : '#1a2230'));
-      ctx.beginPath(); ctx.arc(pos[i].x, pos[i].y, rad, 0, Math.PI * 2);
-      ctx.fillStyle = bodyGrad; ctx.fill();
-      ctx.strokeStyle = hot ? '#b4d2ff' : tr.c;
-      ctx.lineWidth = (hot || hero) ? 4 : 2.5;
-      ctx.stroke();
-      /* 主角标记：小皇冠点 */
-      if (hero) {
-        ctx.beginPath(); ctx.arc(pos[i].x + rad * 0.75, pos[i].y - rad * 0.75, 5, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffd166'; ctx.fill();
-        ctx.strokeStyle = '#14161a'; ctx.lineWidth = 1.5; ctx.stroke();
-      }
-      ctx.fillStyle = hot ? '#ffffff' : '#f0f2f6';
-      ctx.font = ((hot || hero) ? 'bold ' : '') + (hero ? '18' : '16') + 'px sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-      ctx.fillText(String(n).slice(0, 6), pos[i].x, pos[i].y - (rad + 12));
-      /* 人名下加 tier + 关系数，选中和重要角色才显示（避免拥挤） */
-      if (hot || tr.t === '核心' || hero) {
-        var deg = list.filter(function (r) { return r.a === n || r.b === n; }).length;
-        ctx.fillStyle = tr.c; ctx.font = '11px sans-serif';
-        ctx.fillText(tr.t + ' · ' + deg + '条', pos[i].x, pos[i].y - (rad + 28));
-      }
-    });
-    /* 图例：颜色 = 重要程度（关系强度总和），新配色 */
-    /* 左上信息面板：统计 + 图例 + 选中详情（信息明确点） */
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.font = 'bold 15px sans-serif';
-    ctx.fillStyle = '#e8ecf3';
-    ctx.fillText((S.castFilter ? '本章关系图' : '全书关系图'), 22, 34);
-    ctx.font = '13px sans-serif';
-    ctx.fillStyle = '#8d939c';
-    var folded = list.length - order.length;
-    ctx.fillText(names.length + ' 人 · ' + list.length + ' 关系 · ' + order.length + ' 条线' + (folded ? '（并行折叠 ' + folded + '）' : '') + ' · 主角：' + (names[0] || '—'), 22, 54);
-    var leg = [['#ff6b7d', '核心'], ['#ffb454', '重要'], ['#5cc9ff', '次要'], ['#8891a0', '边缘']];
-    leg.forEach(function (l, i) {
-      var ly = 76 + i * 20;
-      ctx.beginPath(); ctx.arc(28, ly, 6, 0, Math.PI * 2);
-      ctx.fillStyle = l[0]; ctx.fill();
-      ctx.fillStyle = '#9aa3b0'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
-      ctx.fillText(l[1], 40, ly + 4);
-    });
-    /* 线型图例：不同关系类型不同颜色与线型 */
-    relStyles.forEach(function (l, i) {
-      var ly = 176 + i * 18;
-      ctx.setLineDash(l.dash);
-      ctx.beginPath(); ctx.moveTo(22, ly); ctx.lineTo(50, ly);
-      ctx.strokeStyle = l.c; ctx.lineWidth = 2.5; ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#9aa3b0'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
-      ctx.fillText(l.n, 56, ly + 4);
-    });
-    /* 选中角色的详情卡：直接画在图上，不用去翻下方列表 */
-    if (S.graphSel >= 0 && names[S.graphSel]) {
-      var selN = names[S.graphSel];
-      var selRels = list.filter(function (r) { return r.a === selN || r.b === selN; });
-      var bx = W - 200, by = 76, bw = 178, bh = 44 + Math.min(6, selRels.length) * 24 + 20;
-      ctx.fillStyle = 'rgba(20,26,38,0.92)';
-      ctx.strokeStyle = selRels.length ? tier(selN).c : '#2a313c';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, 12); } else { ctx.rect(bx, by, bw, bh); }
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#e8ecf3'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
-      ctx.fillText(selN, bx + 12, by + 24);
-      ctx.fillStyle = tier(selN).c; ctx.font = '12px sans-serif';
-      ctx.fillText(tier(selN).t + ' · 权重 ' + (score[selN] || 0) + ' · ' + selRels.length + ' 条关系', bx + 12, by + 42);
-      selRels.slice(0, 6).forEach(function (r, i) {
-        var other = r.a === selN ? r.b : r.a;
-        var ry = by + 66 + i * 24;
-        ctx.fillStyle = '#c9d2df'; ctx.font = '12px sans-serif';
-        ctx.fillText('· ' + other + '（' + (r.type || '关系') + ' 强' + (r.intensity || 1) + '）', bx + 12, ry);
+      G.edges.forEach(function (e) {
+        var A = ns[e.ai], B = ns[e.bi];
+        var inten = Math.min(5, Math.max(1, Number(e.edge.intensity || 1)));
+        var rest = 168 - inten * 13;
+        var dx = B.x - A.x, dy = B.y - A.y;
+        var d = Math.sqrt(dx * dx + dy * dy) || 1;
+        var f = (d - rest) * 0.045 * a;
+        var ux = dx / d, uy = dy / d;
+        A.vx += ux * f; A.vy += uy * f;
+        B.vx -= ux * f; B.vy -= uy * f;
       });
-      if (selRels.length > 6) {
-        ctx.fillStyle = '#8d939c'; ctx.font = '12px sans-serif';
-        ctx.fillText('…还有 ' + (selRels.length - 6) + ' 条，看下方列表', bx + 12, by + 66 + 6 * 24);
-      }
+      ns.forEach(function (n) {
+        if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0; return; }
+        n.vx += (320 - n.x) * 0.0012 * a;
+        n.vy += (300 - n.y) * 0.0012 * a;
+        n.vx *= 0.82; n.vy *= 0.82;
+        n.x += Math.max(-9, Math.min(9, n.vx));
+        n.y += Math.max(-9, Math.min(9, n.vy));
+      });
+      G.alpha *= 0.993;
     }
-    cv.positions = pos; cv.names = names;
+
+    /* 骨架模式（防蛛网）：只显示每条边强度 top 的骨架，其余进「+N」折叠 */
+    var visEdges = G.edges;
+    if (S.graphSkel) {
+      var per = {};
+      G.edges.forEach(function (e) { per[e.ai] = (per[e.ai] || 0) + 1; per[e.bi] = (per[e.bi] || 0) + 1; });
+      var picked = {};
+      names.forEach(function (n, i) {
+        var mine = G.edges.filter(function (e) { return e.ai === i || e.bi === i; })
+          .sort(function (x, y) { return Number(y.edge.intensity || 1) - Number(x.edge.intensity || 1); })
+          .slice(0, 3);
+        mine.forEach(function (e) { picked[G.edges.indexOf(e)] = 1; });
+      });
+      visEdges = G.edges.filter(function (e, i2) { return picked[i2]; });
+    }
+
+    /* 选中角色的邻接（高亮判定） */
+    function adjOf(idx) {
+      var set = {};
+      set[idx] = 1;
+      G.edges.forEach(function (e) {
+        if (e.ai === idx) set[e.bi] = 1;
+        if (e.bi === idx) set[e.ai] = 1;
+      });
+      return set;
+    }
+    var adj = G.sel >= 0 ? adjOf(G.sel) : null;
+
+    var t0 = (Date.now() / 1600) % (2 * Math.PI);
+
+    function frame() {
+      if (!cv.isConnected) return;
+      tick();
+      if (G.needFit) fitView();
+      ctx.fillStyle = '#171b22';
+      ctx.fillRect(0, 0, W, H);
+      var bg = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W / 1.3);
+      bg.addColorStop(0, '#1c2331'); bg.addColorStop(1, '#14161a');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+      /* 边 */
+      visEdges.forEach(function (e, ei) {
+        var A = toScreen(G.nodes[e.ai]), B = toScreen(G.nodes[e.bi]);
+        var hot = G.sel >= 0 && (e.ai === G.sel || e.bi === G.sel);
+        var dim = adj && !hot;
+        var inten = Math.min(5, Math.max(1, Number(e.edge.intensity || 1)));
+        var st = relStyle(e.edge.type);
+        ctx.setLineDash(st.dash.map(function (x) { return x * G.view.scale; }));
+        ctx.globalAlpha = dim ? 0.07 : (hot ? 0.95 : Math.min(0.75, 0.3 + inten * 0.08));
+        ctx.strokeStyle = hot ? '#9cc0ff' : st.c;
+        ctx.lineWidth = (hot ? 3.4 : 1.1 + inten * 0.5) * Math.max(0.6, G.view.scale);
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+        /* 关系标签：缩放足够且不拥挤时显示 */
+        if (G.view.scale >= 0.75 && (!adj || hot)) {
+          var mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+          var tag = String(e.edge.type || '').slice(0, 6) + (e.extra ? ' +' + e.extra : '');
+          if (tag) {
+            ctx.font = (hot ? 'bold ' : '') + Math.round(11 * Math.min(1.3, Math.max(0.8, G.view.scale))) + 'px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            var tw = ctx.measureText(tag).width;
+            ctx.fillStyle = hot ? '#152643' : '#171b22';
+            ctx.fillRect(mx - tw / 2 - 5, my - 9, tw + 10, 18);
+            ctx.strokeStyle = hot ? '#3d5a8a' : st.c;
+            ctx.lineWidth = 1; ctx.strokeRect(mx - tw / 2 - 5, my - 9, tw + 10, 18);
+            ctx.fillStyle = hot ? '#9cc0ff' : '#b8c2cf';
+            ctx.fillText(tag, mx, my + 1);
+          }
+        }
+        /* 选中邻接边：流动粒子 */
+        if (hot) {
+          for (var f = 0; f < 3; f++) {
+            var tt = ((t0 * 0.5 + f / 3 + ei * 0.13) % 1);
+            ctx.beginPath();
+            ctx.arc(A.x + (B.x - A.x) * tt, A.y + (B.y - A.y) * tt, 3, 0, Math.PI * 2);
+            ctx.fillStyle = '#9cc0ff'; ctx.fill();
+          }
+        }
+      });
+
+      /* 节点 */
+      G.nodes.forEach(function (n, i) {
+        var p = toScreen(n);
+        var rad = radiusOf(n.name) * G.view.scale;
+        var hot = i === G.sel;
+        var dim = adj && !adj[i];
+        var hero = i === 0;
+        var tr = tier(n.name);
+        ctx.globalAlpha = dim ? 0.14 : 1;
+        var glow = ctx.createRadialGradient(p.x, p.y, rad * 0.4, p.x, p.y, rad * 2.4);
+        glow.addColorStop(0, tr.c + '55'); glow.addColorStop(1, tr.c + '00');
+        ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = glow; ctx.fill();
+        var body = ctx.createRadialGradient(p.x - rad * 0.3, p.y - rad * 0.35, rad * 0.1, p.x, p.y, rad);
+        body.addColorStop(0, hot ? '#7fb2ff' : (hero ? '#5d82c4' : '#313d52'));
+        body.addColorStop(1, hot ? '#3d6cc4' : (hero ? '#2c4370' : '#1a2230'));
+        ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+        ctx.fillStyle = body; ctx.fill();
+        ctx.strokeStyle = hot ? '#b4d2ff' : tr.c;
+        ctx.lineWidth = (hot || hero ? 3.5 : 2.2) * Math.max(0.6, G.view.scale);
+        ctx.stroke();
+        if (hero) {
+          ctx.beginPath(); ctx.arc(p.x + rad * 0.75, p.y - rad * 0.75, 4.5 * G.view.scale, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffd166'; ctx.fill();
+          ctx.strokeStyle = '#14161a'; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        /* 名字标签：缩放小时只显示核心/选中 */
+        var showName = G.view.scale >= 0.7 || hot || hero || tr.t === '核心';
+        if (showName) {
+          ctx.fillStyle = hot ? '#ffffff' : '#f0f2f6';
+          ctx.font = ((hot || hero) ? 'bold ' : '') + Math.round(13 * Math.min(1.25, Math.max(0.85, G.view.scale))) + 'px sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+          ctx.fillText(String(n.name).slice(0, 6), p.x, p.y - rad - 7);
+        }
+        ctx.globalAlpha = 1;
+      });
+
+      /* 左上信息栏 */
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = '#e8ecf3';
+      ctx.fillText((S.castFilter ? '本章关系图' : '全书关系图') + (S.graphSkel ? '（骨架）' : ''), 18, 30);
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#8d939c';
+      ctx.fillText(names.length + ' 人 · ' + list.length + ' 关系 · ' + (S.graphSkel ? visEdges.length : order.length) + ' 条线' + (folded ? '（折叠 ' + folded + '）' : ''), 18, 50);
+      var leg = [['#ff6b7d', '核心'], ['#ffb454', '重要'], ['#5cc9ff', '次要'], ['#8891a0', '边缘']];
+      leg.forEach(function (l, i) {
+        var ly = 72 + i * 19;
+        ctx.beginPath(); ctx.arc(24, ly, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = l[0]; ctx.fill();
+        ctx.fillStyle = '#9aa3b0'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText(l[1], 35, ly + 4);
+      });
+      relStyles.forEach(function (l, i) {
+        var ly = 72 + 4 * 19 + 12 + i * 17;
+        ctx.setLineDash(l.dash);
+        ctx.beginPath(); ctx.moveTo(18, ly); ctx.lineTo(42, ly);
+        ctx.strokeStyle = l.c; ctx.lineWidth = 2.2; ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#9aa3b0'; ctx.font = '11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(l.n, 47, ly + 4);
+      });
+
+      /* 选中详情卡（右上） */
+      if (G.sel >= 0 && names[G.sel]) {
+        var selN = names[G.sel];
+        var selRels = list.filter(function (r) { return r.a === selN || r.b === selN; });
+        var bx = W - 196, by = 70, bw2 = 178, bh2 = 44 + Math.min(7, selRels.length) * 22 + 16;
+        ctx.fillStyle = 'rgba(20,26,38,0.93)';
+        ctx.strokeStyle = tier(selN).c; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (ctx.roundRect) { ctx.roundRect(bx, by, bw2, bh2, 12); } else { ctx.rect(bx, by, bw2, bh2); }
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#e8ecf3'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText(selN, bx + 12, by + 22);
+        ctx.fillStyle = tier(selN).c; ctx.font = '11px sans-serif';
+        ctx.fillText(tier(selN).t + ' · 权重 ' + (score[selN] || 0) + ' · ' + selRels.length + ' 条', bx + 12, by + 40);
+        selRels.slice(0, 7).forEach(function (r, i) {
+          var other = r.a === selN ? r.b : r.a;
+          ctx.fillStyle = '#c9d2df'; ctx.font = '11px sans-serif';
+          ctx.fillText('· ' + other + '（' + (r.type || '?') + ' ' + (r.intensity || 1) + '）', bx + 12, by + 60 + i * 22);
+        });
+        if (selRels.length > 7) {
+          ctx.fillStyle = '#8d939c'; ctx.font = '11px sans-serif';
+          ctx.fillText('…还有 ' + (selRels.length - 7) + ' 条', bx + 12, by + 60 + 7 * 22);
+        }
+      }
+      cv._raf = requestAnimationFrame(frame);
+    }
+
+    /* ── 交互（pointer 统一：拖节点 / 平移 / 双指缩放 / 点击选中） ── */
     if (!cv._bound) {
       cv._bound = true;
-      /* 双指捏合缩放：live 改样式不重渲染，抬指才落盘，避免手势被打断。 */
-      var pinch = null;
+      var drag = null, pan = null, pinch = null, moved = 0;
+      function hit(sx, sy) {
+        var best = -1, bd = 1e9;
+        G.nodes.forEach(function (n, i) {
+          var p = toScreen(n);
+          var d2 = (p.x - sx) * (p.x - sx) + (p.y - sy) * (p.y - sy);
+          var r = radiusOf(n.name) * G.view.scale + 8;
+          if (d2 < r * r && d2 < bd) { bd = d2; best = i; }
+        });
+        return best;
+      }
+      function evPos(ev) {
+        var rect = cv.getBoundingClientRect();
+        return { x: (ev.clientX - rect.left) * (W / rect.width), y: (ev.clientY - rect.top) * (H / rect.height) };
+      }
+      cv.addEventListener('pointerdown', function (ev) {
+        if (ev.touches && ev.touches.length === 2) return;
+        var p = evPos(ev);
+        moved = 0;
+        var idx = hit(p.x, p.y);
+        cv.setPointerCapture(ev.pointerId);
+        if (idx >= 0) {
+          var w = toWorld(p.x, p.y);
+          var n = G.nodes[idx];
+          drag = { i: idx, ox: n.x - w.x, oy: n.y - w.y };
+        } else {
+          pan = { sx: p.x, sy: p.y, vx: G.view.x, vy: G.view.y, scale: G.view.scale };
+        }
+        ev.preventDefault();
+      });
+      cv.addEventListener('pointermove', function (ev) {
+        var p = evPos(ev);
+        moved += Math.abs(ev.movementX || 0) + Math.abs(ev.movementY || 0);
+        if (drag != null) {
+          var w = toWorld(p.x, p.y);
+          var n = G.nodes[drag.i];
+          n.fx = w.x + drag.ox; n.fy = w.y + drag.oy;
+          G.alpha = Math.max(G.alpha, 0.22);
+        } else if (pan != null) {
+          var wx = (p.x - pan.sx) / pan.scale, wy = (p.y - pan.sy) / pan.scale;
+          G.view.x = pan.vx - wx; G.view.y = pan.vy - wy;
+        }
+      });
+      function release(ev) {
+        if (drag != null) {
+          var n = G.nodes[drag.i];
+          n.fx = null; n.fy = null;
+          G.alpha = Math.max(G.alpha, 0.3);
+          if (moved < 6) { S.graphSel = (S.graphSel === drag.i ? -1 : drag.i); G.sel = S.graphSel; render(); }
+          drag = null;
+        } else if (pan != null) {
+          pan = null;
+        }
+      }
+      cv.addEventListener('pointerup', release);
+      cv.addEventListener('pointercancel', release);
+      cv.addEventListener('wheel', function (ev) {
+        ev.preventDefault();
+        var p = evPos(ev);
+        var before = toWorld(p.x, p.y);
+        G.view.scale = Math.min(3.5, Math.max(0.25, G.view.scale * (ev.deltaY < 0 ? 1.12 : 0.89)));
+        var after = toWorld(p.x, p.y);
+        G.view.x += before.x - after.x; G.view.y += before.y - after.y;
+      }, { passive: false });
+      /* 双指捏合缩放（pointer 流之外单独监听 touch） */
       cv.addEventListener('touchstart', function (ev) {
         if (ev.touches.length === 2) {
           var dx = ev.touches[0].clientX - ev.touches[1].clientX;
           var dy = ev.touches[0].clientY - ev.touches[1].clientY;
-          pinch = { d: Math.sqrt(dx * dx + dy * dy) || 1, z: S.graphZoom || 1 };
-          ev.preventDefault();
+          pinch = { d: Math.sqrt(dx * dx + dy * dy) || 1, z: G.view.scale };
+          drag = null; pan = null;
         }
-      }, { passive: false });
+      }, { passive: true });
       cv.addEventListener('touchmove', function (ev) {
         if (ev.touches.length === 2 && pinch) {
           var dx = ev.touches[0].clientX - ev.touches[1].clientX;
           var dy = ev.touches[0].clientY - ev.touches[1].clientY;
           var d = Math.sqrt(dx * dx + dy * dy) || 1;
-          var z = Math.min(3, Math.max(0.5, pinch.z * d / pinch.d));
-          S.graphZoom = Math.round(z * 20) / 20;
-          cv.style.width = (S.graphZoom * 100) + '%';
-          var lbl = $('gzLabel');
-          if (lbl) lbl.textContent = Math.round(S.graphZoom * 100) + '%';
+          G.view.scale = Math.min(3.5, Math.max(0.25, pinch.z * d / pinch.d));
           ev.preventDefault();
         }
       }, { passive: false });
-      cv.addEventListener('touchend', function () {
-        if (pinch) {
-          pinch = null;
-          try { localStorage.setItem('xiaoyu.graphZoom', String(S.graphZoom)); } catch (e) {}
-        }
-      });
-      cv.addEventListener('click', function (ev) {
-        var rect = cv.getBoundingClientRect();
-        var x = (ev.clientX - rect.left) * (W / rect.width);
-        var y = (ev.clientY - rect.top) * (H / rect.height);
-        var best = -1, bd = 1e9;
-        (cv.positions || []).forEach(function (p, i) {
-          var d2 = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
-          if (d2 < bd) { bd = d2; best = i; }
-        });
-        if (best >= 0 && bd < 45 * 45) {
-          S.graphSel = (S.graphSel === best ? -1 : best);
-          render();
-        }
-      });
+      cv.addEventListener('touchend', function () { if (pinch) pinch = null; });
     }
+    if (cv._raf) cancelAnimationFrame(cv._raf);
+    cv._raf = requestAnimationFrame(frame);
+    cv._graph = G;
   }
+
 
   function vTimeline(d) {
     var list = d.timeline || [];
