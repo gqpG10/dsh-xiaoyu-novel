@@ -2380,8 +2380,19 @@ function styleRegisterLabel(register) {
   }
 }
 
+/** 档位一句话特点（3.15.0）：模板第二行的 <!-- desc: ... --> 注释，供面板卡片展示。 */
+function styleRegisterDesc(register) {
+  try {
+    const text = readFileSync(path.join(STYLE_PRESET_DIR, register + '.md'), 'utf8')
+    const m = /<!--\s*desc:\s*(.*?)\s*-->/.exec(text)
+    return m ? m[1] : ''
+  } catch {
+    return ''
+  }
+}
+
         if (route === 'style-presets' && req.method === 'GET') {
-          json(res, 200, { ok: true, items: listStyleRegisters().map((register) => ({ register, label: styleRegisterLabel(register) })) })
+          json(res, 200, { ok: true, items: listStyleRegisters().map((register) => ({ register, label: styleRegisterLabel(register), desc: styleRegisterDesc(register) })) })
           return
         }
 
@@ -2404,7 +2415,8 @@ function styleRegisterLabel(register) {
             return
           }
           const lines = snippet.split('\n')
-          const sectionBody = lines.slice(1).join('\n').trim()
+          // 3.15.0：desc 特点注释不进正文（它是给面板卡片看的，不是给写手的）。
+          const sectionBody = lines.slice(1).filter((l) => !/^<!--\s*desc:/.test(l)).join('\n').trim()
           const style = readStyleState(novelDir)
           const base = style.found ? style.text : style.template
           const replaceSection = (text, heading, inner) => {
