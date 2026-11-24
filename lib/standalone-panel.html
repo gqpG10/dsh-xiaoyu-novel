@@ -65,6 +65,11 @@
   .heatrow{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #24272d}
   .heatbar{height:10px;border-radius:5px;background:#4b8bf5;min-width:2px}
   .goalbar{height:12px;border-radius:6px;background:#2e333a;overflow:hidden;flex:1 1 auto}
+  .floatnav{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:40;display:flex;gap:8px;
+    background:#171a1f;border:1px solid #3d424a;border-radius:999px;padding:6px 12px;box-shadow:0 4px 18px rgba(0,0,0,.5)}
+  body.light .floatnav{background:#fff}
+  .weekbars{display:flex;align-items:flex-end;gap:3px;height:64px;margin:4px 0}
+  .weekbars>div{flex:1 1 0;min-width:3px;background:#4b8bf5;border-radius:3px 3px 0 0}
   .updwrap{display:flex;gap:8px;align-items:center;flex:1 1 auto;min-width:180px}
   .updbar{height:8px;border-radius:5px;background:#2e333a;overflow:hidden;flex:1 1 auto}
   .updbar>div{height:100%;width:0;background:#4b8bf5;transition:width .4s}
@@ -97,10 +102,11 @@
 
 <nav class="tabs" id="tabs"></nav>
 <main id="view"><div class="note">正在读取…</div></main>
+<div id="offline" style="display:none;position:sticky;top:52px;z-index:35;background:#3d3410;color:#e5c063;font-size:12px;padding:4px 10px;text-align:center">离线模式：显示的是缓存数据</div>
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.7.4';
+var BUILD = '3.8.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -128,7 +134,10 @@ var BUILD = '3.7.4';
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
   function note(t) { $('note').textContent = t || ''; }
-  function confirmAct(msg) { return window.confirm(msg); }
+  function confirmAct(msg, onOk) {
+    if (typeof onOk === 'function') { askModal(msg, onOk); return true; }
+    return window.confirm(msg);
+  }
   function escRe(s) { return String(s).replace(/[\.*+?^${}()|[\]\\]/g, '\\$&'); }
   function hlText(text, q) {
     var safe = esc(text);
@@ -216,6 +225,21 @@ var BUILD = '3.7.4';
     }
     return n;
   }
+  function gateAvg() {
+    if (!S.gates || !S.gates) return '';
+    var scored = Object.keys(S.gates.gates || {}).map(function (k) { return (S.gates.gates || {})[k]; }).filter(function (g) { return g && g.ok; });
+    if (!scored.length) return '';
+    return String(Math.round(scored.reduce(function (a, g) { return a + g.human; }, 0) / scored.length * 10) / 10);
+  }
+  function weekBars() {
+    var days = (S.progress && S.progress.days) || [];
+    if (days.length < 2) return '';
+    var max = Math.max.apply(null, days.map(function (d) { return d.words || 0; })) || 1;
+    return '<div class="weekbars" title="近 ' + days.length + ' 天字数走势">' + days.map(function (d) {
+      return '<div style="height:' + Math.max(4, Math.round((d.words || 0) / max * 100)) + '%" title="' + esc(d.date) + '：' + (d.words || 0) + ' 字"></div>';
+    }).join('') + '</div>';
+  }
+
   function sessRow() {
     if (!S.sess) return '';
     var mins = Math.max(0, Math.floor((Date.now() - S.sess.start) / 60000));
@@ -336,9 +360,12 @@ var BUILD = '3.7.4';
         }).join('') + '</div>';
     }
     var shelf = '<div class="card"><h3>书架</h3>' + ((S.wsList || []).filter(function (w) { return w.hasNovel; }).map(function (w) {
-      return '<button type="button" class="wsbtn' + (w.path === S.ws ? ' cur' : '') + '" data-ws="' + esc(w.path) + '">' +
-        esc(w.name || w.path) + '<span class="pill good">当前</span></button>';
-    }).join('') || '<div class="muted">（无）</div>') + '</div>';
+      var cur = w.path === S.ws;
+      var meta = (cur && S.data) ? '<span class="muted" style="font-size:12px">' + ((S.data.chapters || []).length) + ' 章 · ' + ((S.progress && S.progress.today) || 0) + ' 字' +
+        (S.gates && gateAvg() !== '' ? ' · 人味 ' + gateAvg() : '') + '</span>' : '';
+      return '<button type="button" class="wsbtn' + (cur ? ' cur' : '') + '" data-ws="' + esc(w.path) + '">' +
+        esc(w.name || w.path) + (cur ? '<span class="pill good">当前</span>' : '') + '<br>' + meta + '</button>';
+    }).join('') || '<div class="muted">（无）</div>') + weekBars() + '</div>';
     return setupCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
       ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
@@ -491,10 +518,17 @@ var BUILD = '3.7.4';
         (r.act.indexOf('open:') === 0 ? ' <button type="button" class="sm todoOpen" data-file="' + esc(r.act.slice(5)) + '">去处理</button>' : '') +
         '</div>';
     }).join('');
-    return '<div class="card"><h3>待办 <span class="badge">' + rows.length + ' 项 · 勾选即记已处理</span></h3>' +
+    return '<div class="card"><h3>待办 <span class="badge">' + rows.length + ' 项 · 勾选即记已处理</span>' +
+      ' <button type="button" id="todoClear" class="sm" style="margin-left:auto">清除已完成</button></h3>' +
       (html || '<div class="muted ok">没有待办 ✓</div>') + '</div>';
   }
   function bindTodo() {
+    var tc = $('todoClear');
+    if (tc) tc.addEventListener('click', function () {
+      S.todoDone = {};
+      try { localStorage.removeItem('xiaoyu.todoDone'); } catch (e) {}
+      render();
+    });
     Array.prototype.forEach.call(document.querySelectorAll('.todoChk'), function (c) {
       c.addEventListener('change', function () {
         S.todoDone[c.getAttribute('data-k')] = c.checked;
@@ -1251,10 +1285,11 @@ var BUILD = '3.7.4';
     var csv = $('btnCsv'); if (csv) csv.addEventListener('click', exportCsv);
     var re = $('btnReindex');
     if (re) re.addEventListener('click', function () {
-      if (!confirmAct('重建索引板（clue-board）？只重排索引，不动正文。')) return;
-      note('重建中…');
-      postJson('rebuild-index', { path: S.ws }).then(function () { note('索引板已重建'); loadState(); })
-        .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      conf('重建索引板（clue-board）？只重排索引，不动正文。', function () {
+        note('重建中…');
+        postJson('rebuild-index', { path: S.ws }).then(function () { note('索引板已重建'); loadState(); })
+          .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+      });
     });
     var tpc = $('tpClose');
     if (tpc) tpc.addEventListener('click', function () { S.trashPrev = null; render(); });
@@ -1485,7 +1520,9 @@ var BUILD = '3.7.4';
       '<button type="button" id="btnDiff" class="sm">与上版对比</button>' +
       '<button type="button" id="btnAIGate" class="sm pri">AI改稿</button>' +
       '<input id="chq" placeholder="章内搜" value="' + esc(S.q2) + '" style="width:7.5em;min-height:26px">' +
-      '<span id="chqN" class="muted" style="font-size:11px"></span>';
+      '<span id="chqN" class="muted" style="font-size:11px"></span>' +
+      '<button type="button" id="chqPrev" class="sm" style="min-height:22px;padding:0 6px">↑</button>' +
+      '<button type="button" id="chqNext" class="sm" style="min-height:22px;padding:0 6px">↓</button>';
     var gateCard = '';
     if (S.gateOne) {
       var g = S.gateOne;
@@ -1539,6 +1576,7 @@ var BUILD = '3.7.4';
         '</div></div>';
     }
     return (S.diff || '') + '<div class="card"><h3>' + esc(r.title || r.file) + '<span class="badge">' + words + ' 字</span></h3>' +
+      '<div class="floatnav"><button type="button" id="fnPrev" class="sm">← 上一章</button><button type="button" id="fnBack" class="sm">列表</button><button type="button" id="fnNext" class="sm">下一章 →</button></div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + editBtns + '</div></div>' +
       gateCard + castCard + outlineBlock + bodyBlock;
   }
@@ -1653,6 +1691,10 @@ var BUILD = '3.7.4';
         loadState();
       }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
     });
+    var fpn = $('fnPrev'), fnx = $('fnNext'), fbb = $('fnBack');
+    if (fpn) fpn.addEventListener('click', function () { if (prev) prev.click(); });
+    if (fnx) fnx.addEventListener('click', function () { if (next) next.click(); });
+    if (fbb) fbb.addEventListener('click', function () { if (back) back.click(); });
     var dc2 = $('diffClose');
     if (dc2) dc2.addEventListener('click', function () { S.diff = null; render(); });
     var gu = $('btnGateUndo');
@@ -1749,9 +1791,9 @@ var BUILD = '3.7.4';
     });
     var blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = '章节清单.csv';
+    a.href = URL.createObjectURL(blob); a.download = ((S.data && S.data.project && S.data.project.title) || '书稿') + '-章节清单-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a); a.click(); a.remove();
-    note('已导出章节清单 CSV');
+    note('已导出 ' + ((S.data && S.data.project && S.data.project.title) || '书稿') + '-章节清单-日期.csv');
   }
 
   /* ── 板块折叠：每个卡片固定高度内滚 + 收起/展开 ── */
@@ -2065,6 +2107,16 @@ var BUILD = '3.7.4';
     var el = $('sessTime');
     if (el && S.sess) el.textContent = Math.max(0, Math.floor((Date.now() - S.sess.start) / 60000));
   }, 30000);
+  function pingOnline() {
+    fetch(API + 'update-check').then(function () {
+      var o = document.getElementById('offline');
+      if (o) o.style.display = 'none';
+    }).catch(function () {
+      var o = document.getElementById('offline');
+      if (o) o.style.display = '';
+    });
+  }
+  setInterval(pingOnline, 15000);
   render();
   boot();
 })();
