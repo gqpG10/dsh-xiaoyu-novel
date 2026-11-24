@@ -6,6 +6,8 @@
 #   priority          high|normal|low
 #   source            可选：plan|backfill（缺省 plan；backfill = 共创收稿从作者正文回填认领）
 #   planted_chapter   埋设章节号（必填）
+#   reader_known      可选：读者从哪章开始知道这条线的存在（缺省=埋设章；
+#                     双账纪律：仅作者真相的伏笔正文不得提前泄露）
 #   expected_resolve  预期回收章节号
 #   resolved_chapter  实际回收章节号（resolved 时必填）
 #   notes             回收方式备忘

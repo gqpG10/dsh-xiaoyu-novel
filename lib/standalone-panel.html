@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.11.1';
+var BUILD = '3.12.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -645,6 +645,12 @@ var BUILD = '3.11.1';
           return '<div class="row"><span class="k">' + esc(o.file) + '</span><span class="v">' +
             esc((o.promised || []).slice(0, 4).join('；')) +
             ' <button type="button" class="sm onNote" data-file="' + esc(o.file) + '">记待补备忘</button></span></div>';
+        }).join('');
+      }
+      if ((a.dualLedger || []).length) {
+        out += '<h3 style="margin-top:10px">双账纪律（作者真相/读者已知） ' + a.dualLedger.length + '</h3>' + a.dualLedger.map(function (d) {
+          return '<div class="row"><span class="k">' + esc(d.id) + '</span><span class="v">' +
+            '<span class="pill ' + (d.kind === 'contradiction' ? 'bad' : 'mid') + '">' + (d.kind === 'contradiction' ? '矛盾' : '未分家') + '</span> ' + esc(d.message || '') + '</span></div>';
         }).join('');
       }
       if ((a.exits || []).length) {
