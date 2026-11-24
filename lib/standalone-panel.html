@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.10.2';
+var BUILD = '3.11.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -128,7 +128,7 @@ var BUILD = '3.10.2';
             proj:null,
             trash:null, ledger:null, slim:null,
             git:null, gitLog:null, versionsFile:'', versions:null,
-            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -502,6 +502,11 @@ var BUILD = '3.10.2';
   function problemKey(p) {
     return todoKey((p.level === 'error' ? '错误' : '警告') + (p.file ? p.file + '：' : '') + (p.message || ''));
   }
+  /* 章号引用（v02-c076）→ 排序键：跨卷可比，供伏笔到期判断用。 */
+  function chapOrd(s) {
+    var m = /^v(\d+)-c(\d+)$/i.exec(String(s || '').trim());
+    return m ? Number(m[1]) * 1000000 + Number(m[2]) : null;
+  }
   function allDone() {
     var rows = S.todoRows || [];
     return rows.length > 0 && rows.every(function (r) { return S.todoDone[todoKey(r.t + r.txt)]; });
@@ -516,6 +521,20 @@ var BUILD = '3.10.2';
     ((S.check && S.check.problems) || []).forEach(function (p) {
       rows.push({ t: p.level === 'error' ? '错误' : '警告', txt: (p.file ? p.file + '：' : '') + (p.message || ''), act: '' });
     });
+    /* 伏笔到期（3.11.0）：活跃伏笔的预期回收章已到/已过，自动进待办。 */
+    (function () {
+      var latest = 0;
+      ((S.data && S.data.chapters) || []).forEach(function (c) {
+        var o = chapOrd(c.file);
+        if (o != null && o > latest) latest = o;
+      });
+      ((S.data && S.data.foreshadows) || []).forEach(function (f) {
+        if (f.status === 'resolved' || f.status === 'abandoned') return;
+        var er = chapOrd(f.expected_resolve);
+        if (er == null || er > latest + 1) return;
+        rows.push({ t: '伏笔到期', txt: f.id + '《' + (f.title || '') + '》预期回收 ' + f.expected_resolve + (er <= latest ? '（已过期未收）' : '（下一章该收）'), act: '' });
+      });
+    })();
     S.todoRows = rows;
     var html = rows.map(function (r) {
       var k = todoKey(r.t + r.txt);
@@ -626,6 +645,12 @@ var BUILD = '3.10.2';
           return '<div class="row"><span class="k">' + esc(o.file) + '</span><span class="v">' +
             esc((o.promised || []).slice(0, 4).join('；')) +
             ' <button type="button" class="sm onNote" data-file="' + esc(o.file) + '">记待补备忘</button></span></div>';
+        }).join('');
+      }
+      if ((a.exits || []).length) {
+        out += '<h3 style="margin-top:10px">已退场角色后续出现 ' + a.exits.length + '</h3>' + a.exits.map(function (x) {
+          return '<div class="row"><span class="k">' + esc(x.name) + '</span><span class="v">' + esc(x.status) + ' · 退场 ' + esc(x.exit) +
+            ' <span class="pill bad">后续出现</span><span class="muted"> ' + esc((x.chapters || []).join('、')) + '</span></span></div>';
         }).join('');
       }
     }
@@ -1361,6 +1386,7 @@ var BUILD = '3.10.2';
     if (S.trash) return;
     get('trash', wsQuery()).then(function (d) { S.trash = d; render(); }).catch(function () { S.trash = { ok:true, items:[] }; });
     get('ledger-stats', wsQuery()).then(function (d) { S.ledger = d; }).catch(function () {});
+    get('character-states', wsQuery()).then(function (d) { S.charStates = d; }).catch(function () {});
   }
   function vTools() {
     ensureTools();
@@ -1418,6 +1444,21 @@ var BUILD = '3.10.2';
       '<div class="btnrow"><button type="button" id="btnHandoff" class="sm">生成交接卡（写下一章的前提全在这）</button></div>';
     if (S.handoff) out += '<textarea class="editor small" readonly>' + esc(S.handoff.markdown || JSON.stringify(S.handoff).slice(0, 2000)) + '</textarea>';
     out += '</div>';
+    out += '<div class="card"><h3>角色状态时点账</h3>' +
+      '<div class="btnrow"><select id="csChar" style="flex:1 1 10em">' +
+      ((S.data && S.data.characters) || []).map(function (c) { return '<option value="' + esc(c.name) + '">' + esc(c.name) + '</option>'; }).join('') + '</select>' +
+      '<input id="csChap" placeholder="章号 v02-c076" style="width:9em">' +
+      '<input id="csNote" placeholder="状态变化一句话" style="flex:2 1 12em;min-width:0"></div>' +
+      '<div class="btnrow"><button type="button" id="btnCstate" class="sm pri">登记一笔</button>' +
+      '<span class="muted">每章收尾记角色状态变化，交接卡自动带「截至本章」的状态链</span></div>' +
+      (((S.charStates && S.charStates.states) || []).length ? S.charStates.states.slice(-12).reverse().map(function (st) {
+        return '<div class="row"><span class="k">' + esc(st.chapter) + '</span><span class="v">' + esc(st.character || '') + ' · ' + esc(st.note || '') + '</span></div>';
+      }).join('') : '<div class="muted">还没有记录</div>') + '</div>';
+    out += '<div class="card"><h3>随机取名器（本地词库，不联网）</h3>' +
+      '<div class="btnrow"><button type="button" id="btnNgName" class="sm">人名 10 个</button>' +
+      '<button type="button" id="btnNgSect" class="sm">门派/地名 5 个</button>' +
+      '<button type="button" id="btnNgCopy" class="sm">复制结果</button></div>' +
+      '<textarea id="ngOut" class="editor small" readonly placeholder="点上面按钮生成"></textarea></div>';
     out += '<div class="card"><h3>勾选导出</h3>' +
       '<input id="exFiles" placeholder="章号或文件名，逗号分隔（如 1,2,7）" style="width:100%">' +
       '<div class="btnrow"><button type="button" id="exTxt" class="sm">导出选中 TXT</button>' +
@@ -1528,6 +1569,44 @@ var BUILD = '3.10.2';
       if (!f) { note('先填章节文件名'); return; }
       note('生成交接卡…');
       get('handoff', { path: S.ws, file: f }).then(function (d) { S.handoff = d; render(); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var cs = $('btnCstate');
+    if (cs) cs.addEventListener('click', function () {
+      var who = (($('csChar') || {}).value || '').trim();
+      var chap = (($('csChap') || {}).value || '').trim();
+      var what = (($('csNote') || {}).value || '').trim();
+      if (!who || !chap || !what) { note('角色、章号、状态变化都要填'); return; }
+      note('登记中…');
+      postJson('character-state', { path: S.ws, chapter: chap, character: who, note: what }).then(function () {
+        note('已登记到 character-states.yml');
+        return get('character-states', wsQuery());
+      }).then(function (d) { S.charStates = d; render(); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var NG_SUR = Array.from('陈林黄张王李刘杨周吴徐孙马朱胡郭何高郑谢罗宋唐韩冯于董萧程曹袁邓许傅沈曾彭吕苏卢蒋蔡贾丁魏薛叶阎余潘杜戴夏钟汪田任姜范方石姚谭廖邹熊金陆郝孔白崔康毛邱秦江史顾侯邵孟万段雷钱汤尹黎易常武乔贺');
+    var NG_GIV = Array.from('云风浩辰远寒青临沉砚晚书澜眠归渡野怀观昭亭苏默言亦听白霜松江河南山泽宇轩晨遥桥棠若露声檐灯望念知行意诚信勇清妍姿月雪玉琴棋安静姝成蹊瑾瑜诺涵熙宁舟迟既叙');
+    var NG_PRE = Array.from('玄天苍青紫幽万太凌霞霜雨云星月雪寒松石墨');
+    var NG_SUF = Array.from(['宗', '门', '派', '阁', '山庄', '城', '关', '谷', '岛', '林', '教', '殿', '宫', '剑宗', '剑阁']);
+    function ngPick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+    function ngGen(kind) {
+      var out = [];
+      if (kind === 'name') {
+        for (var i = 0; i < 10; i++) {
+          var a = ngPick(NG_GIV), b = ngPick(NG_GIV);
+          if (b === a) b = ngPick(NG_GIV);
+          out.push(ngPick(NG_SUR) + (Math.random() < 0.25 ? ngPick(NG_GIV) : a + b));
+        }
+      } else {
+        for (var j = 0; j < 5; j++) out.push(ngPick(NG_PRE) + ngPick(NG_PRE) + ngPick(NG_SUF));
+      }
+      var t = $('ngOut'); if (t) t.value = out.join(String.fromCharCode(10));
+      note('已生成，点「复制结果」带走');
+    }
+    var n1 = $('btnNgName'), n2 = $('btnNgSect'), nc = $('btnNgCopy');
+    if (n1) n1.addEventListener('click', function () { ngGen('name'); });
+    if (n2) n2.addEventListener('click', function () { ngGen('sect'); });
+    if (nc) nc.addEventListener('click', function () {
+      var t = $('ngOut'); if (!t) return;
+      copy(t.value).then(function (ok) { note(ok ? '已复制' : '复制失败'); });
     });
     function exGo(fmt) {
       var files = (($('exFiles') || {}).value || '').trim();
@@ -2132,7 +2211,7 @@ var BUILD = '3.10.2';
     S.gates = null; S.audit = null; S.check = null; S.style = null; S.proj = null;
     S.trash = null; S.slim = null; S.git = null; S.gitLog = null; S.versions = null;
     S.gateOne = null; S.reader = null; S.genEd = null; S.graphSel = -1; S.progress = null;
-    S.setup = null; S.cast = null; S.relChap = ''; S.castFilter = null; S.dedupe = null; S.autofill = null; S.handoff = null; S.lclean = null; S.searchRes = null;
+    S.setup = null; S.cast = null; S.relChap = ''; S.castFilter = null; S.dedupe = null; S.autofill = null; S.handoff = null; S.charStates = null; S.lclean = null; S.searchRes = null;
     get('progress', wsQuery()).then(function (d) {
       S.progress = d;
       var sess = null;
