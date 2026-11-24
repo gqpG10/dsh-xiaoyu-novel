@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.8.2';
+var BUILD = '3.8.3';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -543,8 +543,8 @@ var BUILD = '3.8.2';
     if (ai) ai.addEventListener('click', function () {
       var open = ((S.todoRows) || []).filter(function (r) { return !S.todoDone[todoKey(r.t + r.txt)]; });
       if (!open.length) { note('没有未处理的待办'); return; }
-      var list = open.map(function (r, i) { return (i + 1) + '. [' + r.t + '] ' + r.txt; }).join(NL_);
-      var prompt = '请逐条处理以下待办（处理完汇报每条结果）：' + NL_ + list + NL_ + '要求：先跑体检确认现状，逐条修复（正文问题改文件，结构问题改账本），每完成一条勾掉一条，最后重跑体检验证。';
+      var list = open.map(function (r, i) { return (i + 1) + '. [' + r.t + '] ' + r.txt; }).join('\n');
+      var prompt = '请逐条处理以下待办（处理完汇报每条结果）：\n' + list + '\n要求：先跑体检确认现状，逐条修复（正文问题改文件，结构问题改账本），每完成一条勾掉一条，最后重跑体检验证。';
       copy(prompt).then(function (ok) {
         note(ok ? '任务清单已复制，粘贴到 DSH 对话发给小鱼即可' : '复制失败，请手动选择');
       });
