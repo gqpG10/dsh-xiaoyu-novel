@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.12.6';
+var BUILD = '3.13.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1243,53 +1243,88 @@ var BUILD = '3.12.6';
         tick();
       }
       if (G.needFit) { try { fitView(); } catch (e3) { G.needFit = false; } }
-      ctx.fillStyle = '#171b22';
-      ctx.fillRect(0, 0, W, H);
-      var bg = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W / 1.3);
-      bg.addColorStop(0, '#1c2331'); bg.addColorStop(1, '#14161a');
+      /* ── 3.13.0 视觉重做：深空背景 + 点阵 + 柔光曲线 + 胶囊标签 ── */
+      var sc = Math.max(0.6, G.view.scale);
+      var bg = ctx.createRadialGradient(W * 0.5, H * 0.42, 30, W * 0.5, H * 0.5, Math.max(W, H) * 0.9);
+      bg.addColorStop(0, '#1d2740');
+      bg.addColorStop(0.55, '#161c2a');
+      bg.addColorStop(1, '#0e1116');
       ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+      /* 稀疏点阵：给空背景一点质感（缩放无关的静态网格） */
+      ctx.fillStyle = 'rgba(148,163,190,0.06)';
+      for (var gx = 13; gx < W; gx += 26) {
+        for (var gy = 13; gy < H; gy += 26) ctx.fillRect(gx, gy, 1, 1);
+      }
+      /* 选中态聚光暗角：把视线压向被选中的关系网 */
+      if (adj) {
+        var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.72);
+        vg.addColorStop(0, 'rgba(8,10,14,0)');
+        vg.addColorStop(1, 'rgba(8,10,14,0.5)');
+        ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+      }
 
-      /* 边 */
+      /* ── 边：贝塞尔柔光曲线（宽晕 + 细芯两遍）+ 全图微流动粒子 ── */
       visEdges.forEach(function (e, ei) {
         var A = toScreen(G.nodes[e.ai]), B = toScreen(G.nodes[e.bi]);
         var hot = G.sel >= 0 && (e.ai === G.sel || e.bi === G.sel);
         var dim = adj && !hot;
         var inten = Math.min(5, Math.max(1, Number(e.edge.intensity || 1)));
         var st = relStyle(e.edge.type);
-        ctx.setLineDash(st.dash.map(function (x) { return x * G.view.scale; }));
-        ctx.globalAlpha = dim ? 0.07 : (hot ? 0.95 : Math.min(0.75, 0.3 + inten * 0.08));
+        var dx = B.x - A.x, dy = B.y - A.y;
+        var len = Math.sqrt(dx * dx + dy * dy) || 1;
+        /* 曲线控制点：垂直偏移，奇偶交替方向（相邻边不叠死一起） */
+        var bow = Math.min(34, 0.13 * len) * (ei % 2 ? 1 : -1);
+        var cxp = (A.x + B.x) / 2 - (dy / len) * bow;
+        var cyp = (A.y + B.y) / 2 + (dx / len) * bow;
+        /* 第一遍：宽晕（低透明大线宽，光感） */
+        ctx.setLineDash([]);
+        ctx.globalAlpha = dim ? 0.04 : (hot ? 0.30 : 0.10 + inten * 0.015);
+        ctx.strokeStyle = hot ? '#7ea6ff' : st.c;
+        ctx.lineWidth = (hot ? 7 : 3.2 + inten * 0.9) * sc;
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cxp, cyp, B.x, B.y); ctx.stroke();
+        /* 第二遍：细芯（类型虚线在芯上，晕保持实线） */
+        ctx.setLineDash(st.dash.map(function (x) { return x * sc; }));
+        ctx.globalAlpha = dim ? 0.06 : (hot ? 0.95 : Math.min(0.6, 0.24 + inten * 0.07));
         ctx.strokeStyle = hot ? '#9cc0ff' : st.c;
-        ctx.lineWidth = (hot ? 3.4 : 1.1 + inten * 0.5) * Math.max(0.6, G.view.scale);
-        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-        ctx.setLineDash([]); ctx.globalAlpha = 1;
-        /* 关系标签：缩放足够且不拥挤时显示 */
+        ctx.lineWidth = (hot ? 2.6 : 0.9 + inten * 0.35) * sc;
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cxp, cyp, B.x, B.y); ctx.stroke();
+        ctx.setLineDash([]);
+        /* 关系标签：贴在曲线中点的小胶囊 */
         if (G.view.scale >= 0.75 && (!adj || hot)) {
-          var mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+          var u = 0.5;
+          var mx2 = (1 - u) * (1 - u) * A.x + 2 * (1 - u) * u * cxp + u * u * B.x;
+          var my2 = (1 - u) * (1 - u) * A.y + 2 * (1 - u) * u * cyp + u * u * B.y;
           var tag = String(e.edge.type || '').slice(0, 6) + (e.extra ? ' +' + e.extra : '');
           if (tag) {
-            ctx.font = (hot ? 'bold ' : '') + Math.round(11 * Math.min(1.3, Math.max(0.8, G.view.scale))) + 'px sans-serif';
+            ctx.font = (hot ? 'bold ' : '') + Math.round(10.5 * Math.min(1.3, Math.max(0.8, sc))) + 'px sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             var tw = ctx.measureText(tag).width;
-            ctx.fillStyle = hot ? '#152643' : '#171b22';
-            ctx.fillRect(mx - tw / 2 - 5, my - 9, tw + 10, 18);
-            ctx.strokeStyle = hot ? '#3d5a8a' : st.c;
-            ctx.lineWidth = 1; ctx.strokeRect(mx - tw / 2 - 5, my - 9, tw + 10, 18);
-            ctx.fillStyle = hot ? '#9cc0ff' : '#b8c2cf';
-            ctx.fillText(tag, mx, my + 1);
-          }
-        }
-        /* 选中邻接边：流动粒子 */
-        if (hot) {
-          for (var f = 0; f < 3; f++) {
-            var tt = ((t0 * 0.5 + f / 3 + ei * 0.13) % 1);
             ctx.beginPath();
-            ctx.arc(A.x + (B.x - A.x) * tt, A.y + (B.y - A.y) * tt, 3, 0, Math.PI * 2);
-            ctx.fillStyle = '#9cc0ff'; ctx.fill();
+            if (ctx.roundRect) { ctx.roundRect(mx2 - tw / 2 - 6, my2 - 9.5, tw + 12, 19, 9.5); } else { ctx.rect(mx2 - tw / 2 - 6, my2 - 9.5, tw + 12, 19); }
+            ctx.fillStyle = hot ? 'rgba(21,38,67,0.92)' : 'rgba(13,17,25,0.82)';
+            ctx.fill();
+            ctx.strokeStyle = hot ? '#3d5a8a' : (st.c + '66');
+            ctx.lineWidth = 1; ctx.stroke();
+            ctx.fillStyle = hot ? '#9cc0ff' : '#b8c2cf';
+            ctx.fillText(tag, mx2, my2 + 0.5);
           }
         }
+        /* 流动粒子：全图常态微流（活着的感觉），选中邻接加密加亮 */
+        var dots = hot ? 3 : (dim ? 0 : 2);
+        for (var f = 0; f < dots; f++) {
+          var tt = ((t0 * 0.4 + f / Math.max(dots, 1) + ei * 0.17) % 1);
+          var uu = 1 - tt;
+          var px2 = uu * uu * A.x + 2 * uu * tt * cxp + tt * tt * B.x;
+          var py2 = uu * uu * A.y + 2 * uu * tt * cyp + tt * tt * B.y;
+          ctx.beginPath(); ctx.arc(px2, py2, (hot ? 2.6 : 1.5) * sc, 0, Math.PI * 2);
+          ctx.fillStyle = hot ? '#bcd6ff' : st.c;
+          ctx.globalAlpha = hot ? 0.95 : 0.4;
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       });
 
-      /* 节点 */
+      /* ── 节点：光晕 + 渐变球 + 左上高光 + tier 描边 + 选中脉动环 ── */
       G.nodes.forEach(function (n, i) {
         var p = toScreen(n);
         var rad = radiusOf(n.name) * G.view.scale;
@@ -1297,84 +1332,127 @@ var BUILD = '3.12.6';
         var dim = adj && !adj[i];
         var hero = i === 0;
         var tr = tier(n.name);
-        ctx.globalAlpha = dim ? 0.14 : 1;
-        var glow = ctx.createRadialGradient(p.x, p.y, rad * 0.4, p.x, p.y, rad * 2.4);
-        glow.addColorStop(0, tr.c + '55'); glow.addColorStop(1, tr.c + '00');
-        ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.4, 0, Math.PI * 2);
+        ctx.globalAlpha = dim ? 0.12 : 1;
+        /* 柔和大光晕 */
+        var glow = ctx.createRadialGradient(p.x, p.y, rad * 0.35, p.x, p.y, rad * 2.8);
+        glow.addColorStop(0, tr.c + (hot || hero ? '59' : '40'));
+        glow.addColorStop(1, tr.c + '00');
+        ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.8, 0, Math.PI * 2);
         ctx.fillStyle = glow; ctx.fill();
-        var body = ctx.createRadialGradient(p.x - rad * 0.3, p.y - rad * 0.35, rad * 0.1, p.x, p.y, rad);
-        body.addColorStop(0, hot ? '#7fb2ff' : (hero ? '#5d82c4' : '#313d52'));
-        body.addColorStop(1, hot ? '#3d6cc4' : (hero ? '#2c4370' : '#1a2230'));
+        /* 主角金色外环 */
+        if (hero && !dim) {
+          ctx.beginPath(); ctx.arc(p.x, p.y, rad + 4.5 * sc, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255,209,102,0.35)'; ctx.lineWidth = 1.4 * sc; ctx.stroke();
+        }
+        /* 球体 */
+        var body = ctx.createRadialGradient(p.x - rad * 0.3, p.y - rad * 0.38, rad * 0.08, p.x, p.y, rad * 1.02);
+        body.addColorStop(0, hot ? '#8fbcff' : (hero ? '#5f88cc' : '#38455e'));
+        body.addColorStop(1, hot ? '#2f5cb0' : (hero ? '#28406e' : '#171f2e'));
         ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
         ctx.fillStyle = body; ctx.fill();
-        ctx.strokeStyle = hot ? '#b4d2ff' : tr.c;
-        ctx.lineWidth = (hot || hero ? 3.5 : 2.2) * Math.max(0.6, G.view.scale);
+        /* 左上高光点（球体质感） */
+        ctx.beginPath(); ctx.arc(p.x - rad * 0.34, p.y - rad * 0.4, rad * 0.2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fill();
+        /* tier 描边 */
+        ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+        ctx.strokeStyle = hot ? '#c3d9ff' : tr.c;
+        ctx.lineWidth = (hot ? 2.8 : (hero ? 2.4 : 1.6)) * sc;
         ctx.stroke();
-        if (hero) {
-          ctx.beginPath(); ctx.arc(p.x + rad * 0.75, p.y - rad * 0.75, 4.5 * G.view.scale, 0, Math.PI * 2);
-          ctx.fillStyle = '#ffd166'; ctx.fill();
-          ctx.strokeStyle = '#14161a'; ctx.lineWidth = 1.5; ctx.stroke();
+        /* 选中脉动环 */
+        if (hot) {
+          var pr = rad + 5 + Math.sin(Date.now() / 280) * 2.5;
+          ctx.beginPath(); ctx.arc(p.x, p.y, pr, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(156,192,255,0.5)'; ctx.lineWidth = 1.5 * sc; ctx.stroke();
         }
-        /* 名字标签：缩放小时只显示核心/选中 */
+        /* 主角皇冠点 */
+        if (hero) {
+          ctx.beginPath(); ctx.arc(p.x + rad * 0.78, p.y - rad * 0.78, 4.2 * sc, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffd166'; ctx.fill();
+          ctx.strokeStyle = 'rgba(20,22,26,0.9)'; ctx.lineWidth = 1.4; ctx.stroke();
+        }
+        /* 名字：胶囊标签（缩放小时只显示核心/选中/主角） */
         var showName = G.view.scale >= 0.7 || hot || hero || tr.t === '核心';
         if (showName) {
-          ctx.fillStyle = hot ? '#ffffff' : '#f0f2f6';
-          ctx.font = ((hot || hero) ? 'bold ' : '') + Math.round(13 * Math.min(1.25, Math.max(0.85, G.view.scale))) + 'px sans-serif';
-          ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-          ctx.fillText(String(n.name).slice(0, 6), p.x, p.y - rad - 7);
+          var nm = String(n.name).slice(0, 6);
+          ctx.font = ((hot || hero) ? 'bold ' : '') + Math.round(12.5 * Math.min(1.25, Math.max(0.85, sc))) + 'px sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          var tw2 = ctx.measureText(nm).width;
+          var pillY = p.y + rad + 15;
+          ctx.beginPath();
+          if (ctx.roundRect) { ctx.roundRect(p.x - tw2 / 2 - 7, pillY - 9.5, tw2 + 14, 19, 9.5); } else { ctx.rect(p.x - tw2 / 2 - 7, pillY - 9.5, tw2 + 14, 19); }
+          ctx.fillStyle = hot ? 'rgba(24,36,58,0.92)' : 'rgba(13,17,25,0.78)';
+          ctx.fill();
+          ctx.strokeStyle = tr.c + '4d';
+          ctx.lineWidth = 1; ctx.stroke();
+          ctx.fillStyle = hot ? '#ffffff' : '#eef1f6';
+          ctx.fillText(nm, p.x, pillY + 0.5);
         }
         ctx.globalAlpha = 1;
       });
 
-      /* 左上信息栏 */
+      /* ── 左上信息面板（毛玻璃一张卡装下：标题+统计+两级图例） ── */
+      /* 3.13.1：图例去毛玻璃——文字直接浮在深空背景上，更轻更干净。 */
+      ctx.shadowColor = 'rgba(10,13,18,0.9)';
+      ctx.shadowBlur = 6;
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.fillStyle = '#e8ecf3';
-      ctx.fillText((S.castFilter ? '本章关系图' : '全书关系图') + (S.graphSkel ? '（骨架）' : ''), 18, 30);
-      ctx.font = '12px sans-serif';
-      ctx.fillStyle = '#8d939c';
-      ctx.fillText(names.length + ' 人 · ' + list.length + ' 关系 · ' + (S.graphSkel ? visEdges.length : order.length) + ' 条线' + (folded ? '（折叠 ' + folded + '）' : ''), 18, 50);
+      ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#e8ecf3';
+      ctx.fillText((S.castFilter ? '本章关系图' : '全书关系图') + (S.graphSkel ? ' · 骨架' : ''), 24, 34);
+      ctx.shadowColor = 'rgba(10,13,18,0.85)';
+      ctx.shadowBlur = 5;
+      ctx.font = '11px sans-serif'; ctx.fillStyle = '#8d939c';
+      ctx.fillText(names.length + ' 人 · ' + list.length + ' 关系' + (folded ? ' · 折叠 ' + folded : ''), 24, 52);
+      /* tier 图例一行 */
       var leg = [['#ff6b7d', '核心'], ['#ffb454', '重要'], ['#5cc9ff', '次要'], ['#8891a0', '边缘']];
-      leg.forEach(function (l, i) {
-        var ly = 72 + i * 19;
-        ctx.beginPath(); ctx.arc(24, ly, 5.5, 0, Math.PI * 2);
+      var lx = 24;
+      leg.forEach(function (l) {
+        ctx.beginPath(); ctx.arc(lx + 4, 70, 4, 0, Math.PI * 2);
         ctx.fillStyle = l[0]; ctx.fill();
-        ctx.fillStyle = '#9aa3b0'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
-        ctx.fillText(l[1], 35, ly + 4);
+        ctx.fillStyle = '#9aa3b0'; ctx.font = '10.5px sans-serif';
+        ctx.fillText(l[1], lx + 12, 74);
+        lx += 12 + ctx.measureText(l[1]).width + 10;
       });
-      relStyles.forEach(function (l, i) {
-        var ly = 72 + 4 * 19 + 12 + i * 17;
+      ctx.shadowBlur = 0;
+      /* 关系类型图例一行（短线段+名） */
+      var lx2 = 24;
+      relStyles.forEach(function (l) {
         ctx.setLineDash(l.dash);
-        ctx.beginPath(); ctx.moveTo(18, ly); ctx.lineTo(42, ly);
-        ctx.strokeStyle = l.c; ctx.lineWidth = 2.2; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(lx2, 90); ctx.lineTo(lx2 + 14, 90);
+        ctx.strokeStyle = l.c; ctx.lineWidth = 2; ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = '#9aa3b0'; ctx.font = '11px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(l.n, 47, ly + 4);
+        ctx.fillStyle = '#9aa3b0'; ctx.font = '10.5px sans-serif';
+        ctx.fillText(l.n, lx2 + 18, 94);
+        lx2 += 18 + ctx.measureText(l.n).width + 8;
       });
+      /* 骨架模式提示 */
+      if (S.graphSkel) {
+        ctx.fillStyle = '#7f93ad'; ctx.font = '10px sans-serif';
+        ctx.fillText('骨架模式：每角色只显最强 3 条线', 24, 110);
+      }
 
-      /* 选中详情卡（右上） */
+      /* ── 选中详情卡（右上，毛玻璃 + tier 色左侧竖条） ── */
       if (G.sel >= 0 && names[G.sel]) {
         var selN = names[G.sel];
         var selRels = list.filter(function (r) { return r.a === selN || r.b === selN; });
-        var bx = W - 200, by = 64, bw2 = 192, bh2 = 52 + Math.min(8, selRels.length) * 26 + 20;
-        ctx.fillStyle = 'rgba(20,26,38,0.93)';
-        ctx.strokeStyle = tier(selN).c; ctx.lineWidth = 1.5;
+        var bx = W - 204, by = 62, bw2 = 192, bh2 = 52 + Math.min(8, selRels.length) * 26 + 18;
         ctx.beginPath();
         if (ctx.roundRect) { ctx.roundRect(bx, by, bw2, bh2, 12); } else { ctx.rect(bx, by, bw2, bh2); }
-        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = 'rgba(15,20,32,0.88)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(120,140,170,0.22)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.beginPath();
+        if (ctx.roundRect) { ctx.roundRect(bx, by + 10, 3, bh2 - 20, 1.5); } else { ctx.rect(bx, by + 10, 3, bh2 - 20); }
+        ctx.fillStyle = tier(selN).c; ctx.fill();
         ctx.fillStyle = '#e8ecf3'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
-        ctx.fillText(selN, bx + 12, by + 26);
+        ctx.fillText(selN, bx + 14, by + 26);
         ctx.fillStyle = tier(selN).c; ctx.font = '11px sans-serif';
-        ctx.fillText(tier(selN).t + ' · 权重 ' + (score[selN] || 0) + ' · ' + selRels.length + ' 条关系', bx + 12, by + 48);
+        ctx.fillText(tier(selN).t + ' · 权重 ' + (score[selN] || 0) + ' · ' + selRels.length + ' 条关系', bx + 14, by + 47);
         selRels.slice(0, 8).forEach(function (r, i) {
           var other = r.a === selN ? r.b : r.a;
           ctx.fillStyle = '#c9d2df'; ctx.font = '12px sans-serif';
-          ctx.fillText('· ' + other + '（' + (r.type || '?') + ' 强' + (r.intensity || 1) + '）', bx + 12, by + 74 + i * 26);
+          ctx.fillText('· ' + other + '（' + (r.type || '?') + ' 强' + (r.intensity || 1) + '）', bx + 14, by + 72 + i * 26);
         });
         if (selRels.length > 8) {
           ctx.fillStyle = '#8d939c'; ctx.font = '12px sans-serif';
-          ctx.fillText('…还有 ' + (selRels.length - 8) + ' 条，看下方列表', bx + 12, by + 74 + 8 * 26);
+          ctx.fillText('…还有 ' + (selRels.length - 8) + ' 条，看下方列表', bx + 14, by + 72 + 8 * 26);
         }
       }
     }
@@ -1429,7 +1507,10 @@ var BUILD = '3.12.6';
         if (drag != null) {
           var n = G.nodes[drag.i];
           n.fx = null; n.fy = null;
-          G.alpha = Math.max(G.alpha, 0.3);
+          /* 3.13.1 漂移真修：只有真拖拽（moved≥6）才唤醒物理——点击选中绝不
+             抬 alpha。冻结态是「未平衡的暂停」，点击一唤醒整图就继续向平衡
+             缓慢迁移（=用户看到的往边上漂）。点击不该有任何移动。 */
+          if (moved >= 6) G.alpha = Math.max(G.alpha, 0.3);
           /* 点击选中（3.12.4）：不再 render()——重建 DOM 会打断 rAF 动画链，
              旧 canvas 收不到 pointerup、事件半途丢失；选中态只改 G.sel
              （画布内高亮/详情卡当帧就换），S.graphSel 存着，下次 drawGraph 继承。 */
