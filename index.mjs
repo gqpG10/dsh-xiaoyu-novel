@@ -2644,6 +2644,21 @@ function styleRegisterLabel(register) {
           return
         }
 
+        if (route === 'trash-preview' && req.method === 'GET') {
+          // 回收站预览（3.7.0，只读）：恢复前先看内容，最多回 3000 字。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const id = String(url.searchParams.get('id') ?? '')
+          if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) { json(res, 400, { ok:false, error:'bad id' }); return }
+          const target = path.join(novelDir, '.trash', id, 'file')
+          try {
+            const text = readFileSync(target, 'utf8').slice(0, 3000)
+            json(res, 200, { ok: true, id, text })
+          } catch {
+            json(res, 404, { ok: false, error: '条目不存在' })
+          }
+          return
+        }
+
         if (route === 'trash-restore' && req.method === 'POST') {
           const body = await readBody(req, res)
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)

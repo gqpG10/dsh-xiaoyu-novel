@@ -97,7 +97,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.6.3';
+var BUILD = '3.7.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -119,13 +119,19 @@ var BUILD = '3.6.3';
             proj:null,
             trash:null, ledger:null, slim:null,
             git:null, gitLog:null, versionsFile:'', versions:null,
-            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, hlLine:0, genView:null, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
   function note(t) { $('note').textContent = t || ''; }
   function confirmAct(msg) { return window.confirm(msg); }
+  function escRe(s) { return String(s).replace(/[\.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function hlText(text, q) {
+    var safe = esc(text);
+    if (!q) return safe;
+    try { return safe.replace(new RegExp(escRe(q), 'gi'), function (m) { return '<mark style="background:#6f5c2a;color:#ffe9b0;border-radius:3px">' + m + '</mark>'; }); } catch (e) { return safe; }
+  }
   /* 工作台风格的确认弹层：暗幕 + 卡片，替代原生 confirm。 */
   function askModal(msg, onOk, okLabel) {
     var wrap = document.createElement('div');
@@ -207,12 +213,20 @@ var BUILD = '3.6.3';
     }
     return n;
   }
+  function sessRow() {
+    if (!S.sess) return '';
+    var mins = Math.max(0, Math.floor((Date.now() - S.sess.start) / 60000));
+    var gain = (S.progress && typeof S.progress.delta === 'number') ? S.progress.delta - S.sess.base : 0;
+    return '<div class="row"><span class="k">本时段</span><span class="v"><span id="sessTime">' + mins + '</span> 分钟 · +' + Math.max(0, gain) + ' 字' +
+      ' <button type="button" id="sessReset" class="sm">重新计时</button></span></div>';
+  }
+
   function goalHtml() {
     var goal = 4000;
     try { goal = Number(localStorage.getItem('xiaoyu.dailyGoal')) || 4000; } catch (e) {}
     var today = (S.progress && typeof S.progress.delta === 'number') ? Math.max(0, S.progress.delta) : 0;
     var pct = Math.min(100, Math.round(today / goal * 100));
-    return '<div class="row"><span class="k">日更目标</span><span class="v" style="display:flex;gap:8px;align-items:center">' +
+    return sessRow() + '<div class="row"><span class="k">日更目标</span><span class="v" style="display:flex;gap:8px;align-items:center">' +
       '<input id="goalInput" type="number" value="' + goal + '" style="width:5em">' +
       '<div class="goalbar"><div style="width:' + pct + '%"></div></div>' +
       '<span class="muted">' + today + '/' + goal + '（' + pct + '%）</span></span></div>';
@@ -352,22 +366,52 @@ var BUILD = '3.6.3';
              String(c.summary || '').toLowerCase().indexOf(q) >= 0 ||
              String(c.file || '').toLowerCase().indexOf(q) >= 0;
     });
+    var picked = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; }).length;
     return '<div class="card"><h3>共 ' + list.length + ' 章' +
-      (S.gates && S.gates.gates ? '<span class="badge">及格线 ' + esc(S.gates.passMark) + '</span>' : '') + '</h3>' +
+      (S.gates && S.gates.gates ? '<span class="badge">及格线 ' + esc(S.gates.passMark) + '</span>' : '') +
+      ' <button type="button" id="selToggle" class="sm">' + (S.selMode ? '退出选择' : '批量选择') + '</button></h3>' +
+      (S.selMode ? '<div class="btnrow" style="background:#1a2029;border-radius:8px;padding:6px 8px"><span class="muted">已选 ' + picked + ' 章</span>' +
+        '<button type="button" id="selAll" class="sm">全选</button><button type="button" id="selNone" class="sm">清空</button>' +
+        '<button type="button" id="selAccept" class="sm pri">一键已定稿</button></div>' : '') +
       '<input id="q" placeholder="搜标题 / 摘要 / 文件名" value="' + esc(S.q) + '" style="width:100%;margin-bottom:8px">' +
       list.map(function (c) {
-        return '<button type="button" class="chap" data-file="' + esc(c.file) + '">' +
+        var open = S.selMode
+          ? '<label class="chap"><input type="checkbox" class="selChk" data-file="' + esc(c.file) + '"' + (S.selSet[c.file] ? ' checked' : '') + ' style="min-height:auto;margin-right:6px"> '
+          : '<button type="button" class="chap" data-file="' + esc(c.file) + '">';
+        var close = S.selMode ? '</label>' : '</button>';
+        return open +
           '<span class="no">第' + esc(c.num != null ? c.num : '?') + '章</span>' +
           '<span class="ti">' + esc(c.title || c.file) +
             (c.status ? '<span class="pill">' + esc(STATUS_LABEL[c.status] || c.status) + '</span>' : '') +
             gatePill(c.file) +
             (c.summary ? '<div class="muted">' + esc(String(c.summary).slice(0, 90)) + '</div>' : '') +
-          '</span><span class="w">' + esc(c.words || 0) + '</span></button>';
+          '</span><span class="w">' + esc(c.words || 0) + '</span>' + close;
       }).join('') + '</div>';
   }
 
   /* ── 门禁总览 ── */
+  function ensureTrend() {
+    if (S.trend) return;
+    get('trend', wsQuery()).then(function (d) { S.trend = d; if (S.tab === 'gate') render(); }).catch(function () { S.trend = { ok:false }; });
+  }
+  function trendSvg(rows) {
+    var W = 620, H = 150, pad = 12, n = rows.length;
+    if (!n) return '<div class="muted">（无数据）</div>';
+    function pts(key) {
+      return rows.map(function (r, i) {
+        var x = pad + i * (W - 2 * pad) / Math.max(n - 1, 1);
+        var y = H - pad - (Math.min(100, Number(r[key] || 0)) / 100) * (H - 2 * pad);
+        return x.toFixed(1) + ',' + y.toFixed(1);
+      }).join(' ');
+    }
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' +
+      '<polyline points="' + pts('human') + '" fill="none" stroke="#4b8bf5" stroke-width="2.5"/>' +
+      '<polyline points="' + pts('detector') + '" fill="none" stroke="#3fbf7f" stroke-width="1.6" stroke-dasharray="5 4"/>' +
+      '</svg><div class="muted">蓝=人味 · 绿=检测器 · 共 ' + n + ' 章（左→右按章节序）</div>';
+  }
+
   function vGate() {
+    ensureTrend();
     if (S.gatesErr) return '<div class="err">门禁读取失败：' + esc(S.gatesErr) + '</div>';
     if (!S.gates) return '<div class="note">正在计算门禁分…（全本逐章分析，稍等几秒）</div>';
     var names = Object.keys(S.gates.gates || {}).sort(function (a, b) {
@@ -395,6 +439,8 @@ var BUILD = '3.6.3';
       ['说明', '点任一章进入阅读页看嫌疑句与一键修']
     ]) + passRow + '</div>' +
     '<div class="card"><h3>人味走势</h3>' + bars + '</div>' +
+    '<div class="card"><h3>全本人味历史曲线 <span class="badge">及格线 ' + esc(S.gates.passMark) + '</span></h3>' +
+      (S.trend && S.trend.rows ? trendSvg(S.trend.rows) : '<div class="muted">加载中…</div>') + '</div>' +
     '<div class="card"><h3>按人味分排序（低在前）</h3>' +
     names.map(function (f) {
       var g = S.gates.gates[f], c = meta[f] || {};
@@ -1066,11 +1112,14 @@ var BUILD = '3.6.3';
     var q = '?path=' + encodeURIComponent(S.ws);
     var out = '<div class="card"><h3>索引</h3><div class="btnrow"><button type="button" id="btnReindex" class="sm">重建索引板</button></div></div>';
     out += '<div class="card"><h3>回收站' + (S.trash ? ' <span class="badge">' + ((S.trash.items || []).length) + ' 项</span>' : '') + '</h3>';
+    if (S.trashPrev) out += '<div class="card"><h3>回收站预览 <span class="badge">' + esc(S.trashPrev.rel || S.trashPrev.id) + '</span><button type="button" id="tpClose" class="sm" style="margin-left:auto">关闭</button></h3>' +
+      '<div class="muted" style="white-space:pre-wrap;max-height:40vh;overflow-y:auto">' + esc(S.trashPrev.text || '（空）') + '</div></div>';
     if (!S.trash) out += '<div class="muted">读取中…</div>';
     else if (!(S.trash.items || []).length) out += '<div class="muted ok">回收站是空的 ✓</div>';
     else out += S.trash.items.map(function (it) {
       return '<div class="row"><span class="k">' + esc(it.rel || it.id) + '</span><span class="v">' +
         '<span class="muted">' + esc((it.at || '').toString().slice(0, 19).replace('T', ' ')) + ' · ' + esc(it.bytes || 0) + 'B</span> ' +
+        '<button type="button" class="sm trashPrevBtn" data-id="' + esc(it.id) + '" data-rel="' + esc(it.rel || '') + '">预览</button> ' +
         '<button type="button" class="sm trashRestore" data-id="' + esc(it.id) + '">恢复</button> ' +
         '<button type="button" class="sm warn trashPurge" data-id="' + esc(it.id) + '">彻底删除</button></span></div>';
     }).join('');
@@ -1149,6 +1198,18 @@ var BUILD = '3.6.3';
       note('重建中…');
       postJson('rebuild-index', { path: S.ws }).then(function () { note('索引板已重建'); loadState(); })
         .catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var tpc = $('tpClose');
+    if (tpc) tpc.addEventListener('click', function () { S.trashPrev = null; render(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.trashPrevBtn'), function (b) {
+      b.addEventListener('click', function () {
+        note('读取预览…');
+        get('trash-preview', { path: S.ws, id: b.getAttribute('data-id') }).then(function (d) {
+          S.trashPrev = { id: b.getAttribute('data-id'), rel: b.getAttribute('data-rel'), text: (d && d.text) || '' };
+          render();
+          window.scrollTo(0, 0);
+        }).catch(function (e) { note('预览失败：' + ((e && e.message) || e)); });
+      });
     });
     Array.prototype.forEach.call(document.querySelectorAll('.trashRestore'), function (b) {
       b.addEventListener('click', function () {
@@ -1372,7 +1433,9 @@ var BUILD = '3.6.3';
       ' 状态 <select id="statusSel" class="sm">' + stOpts + '</select>' +
       '<button type="button" id="btnFontDn" class="sm">A−</button><button type="button" id="btnFontUp" class="sm">A+</button>' +
       '<button type="button" id="btnDiff" class="sm">与上版对比</button>' +
-      '<button type="button" id="btnAIGate" class="sm pri">AI改稿</button>';
+      '<button type="button" id="btnAIGate" class="sm pri">AI改稿</button>' +
+      '<input id="chq" placeholder="章内搜" value="' + esc(S.q2) + '" style="width:7.5em;min-height:26px">' +
+      '<span id="chqN" class="muted" style="font-size:11px"></span>';
     var gateCard = '';
     if (S.gateOne) {
       var g = S.gateOne;
@@ -1422,7 +1485,7 @@ var BUILD = '3.6.3';
     } else {
       var lines = String(r.body || '').split('\n');
       bodyBlock = '<div class="card"><h3>正文</h3><div class="body" id="bodyText" style="font-size:' + Math.round(15 * S.fontScale) + 'px">' +
-        lines.map(function (ln, i) { return '<div class="ln' + (S.hlLine === i + 1 ? ' hl' : '') + '" id="ln-' + (i + 1) + '">' + (esc(ln) || '&nbsp;') + '</div>'; }).join('') +
+        lines.map(function (ln, i) { return '<div class="ln' + (S.hlLine === i + 1 ? ' hl' : '') + '" id="ln-' + (i + 1) + '">' + (hlText(ln, S.q2) || '&nbsp;') + '</div>'; }).join('') +
         '</div></div>';
     }
     return (S.diff || '') + '<div class="card"><h3>' + esc(r.title || r.file) + '<span class="badge">' + words + ' 字</span></h3>' +
@@ -1438,6 +1501,18 @@ var BUILD = '3.6.3';
   function bindReader() {
     var back = $('btnBack'), prev = $('btnPrev'), next = $('btnNext'), cp = $('btnCopy');
     var fd = $('btnFontDn'), fu = $('btnFontUp'), df = $('btnDiff'), ag = $('btnAIGate');
+    var chq = $('chq');
+    if (chq) {
+      var cnt = S.q2 ? (String(r.body || '').match(new RegExp(escRe(S.q2), 'gi')) || []).length : 0;
+      var cn = $('chqN'); if (cn) cn.textContent = S.q2 ? (cnt + ' 处') : '';
+      chq.addEventListener('input', function () {
+        S.q2 = chq.value;
+        var pos = chq.selectionStart;
+        render();
+        var c2 = $('chq');
+        if (c2) { c2.focus(); try { c2.setSelectionRange(pos, pos); } catch (e) {} }
+      });
+    }
     if (fd) fd.addEventListener('click', function () { S.fontScale = Math.max(0.8, S.fontScale - 0.1); try { localStorage.setItem('xiaoyu.fontScale', String(S.fontScale)); } catch (e) {} render(); });
     if (fu) fu.addEventListener('click', function () { S.fontScale = Math.min(1.8, S.fontScale + 0.1); try { localStorage.setItem('xiaoyu.fontScale', String(S.fontScale)); } catch (e) {} render(); });
     if (df) df.addEventListener('click', function () {
@@ -1746,6 +1821,36 @@ var BUILD = '3.6.3';
         loadState();
       });
     });
+    var stg = $('selToggle');
+    if (stg) stg.addEventListener('click', function () { S.selMode = !S.selMode; S.selSet = {}; render(); });
+    var sal = $('selAll'); if (sal) sal.addEventListener('click', function () { chapterList().forEach(function (c) { S.selSet[c.file] = true; }); render(); });
+    var snn = $('selNone'); if (snn) snn.addEventListener('click', function () { S.selSet = {}; render(); });
+    var sac = $('selAccept');
+    if (sac) sac.addEventListener('click', function () {
+      var files = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; });
+      if (!files.length) { note('先勾选章节'); return; }
+      if (!confirmAct('把 ' + files.length + ' 章一键改为「已定稿」？')) return;
+      note('批量改状态…');
+      var chain = Promise.resolve();
+      files.forEach(function (f) {
+        chain = chain.then(function () { return postJson('chapter-status', { path: S.ws, file: f, status: 'accepted' }).catch(function () {}); });
+      });
+      chain.then(function () { note('已定稿 ' + files.length + ' 章'); S.selMode = false; S.selSet = {}; loadState(); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.selChk'), function (c) {
+      c.addEventListener('change', function (ev) {
+        ev.stopPropagation();
+        S.selSet[c.getAttribute('data-file')] = c.checked;
+        render();
+      });
+    });
+    var sr = $('sessReset');
+    if (sr) sr.addEventListener('click', function () {
+      try { localStorage.removeItem('xiaoyu.sess'); } catch (e) {}
+      S.sess = null;
+      note('已重新计时');
+      loadState();
+    });
     var gi = $('goalInput');
     if (gi) gi.addEventListener('change', function () {
       try { localStorage.setItem('xiaoyu.dailyGoal', String(Number(gi.value) || 4000)); } catch (e) {}
@@ -1762,6 +1867,13 @@ var BUILD = '3.6.3';
     S.setup = null; S.cast = null; S.relChap = ''; S.castFilter = null; S.dedupe = null; S.autofill = null; S.handoff = null; S.lclean = null; S.searchRes = null;
     get('progress', wsQuery()).then(function (d) {
       S.progress = d;
+      var sess = null;
+      try { sess = JSON.parse(localStorage.getItem('xiaoyu.sess') || 'null'); } catch (e) {}
+      if (!sess || Date.now() - sess.start > 6 * 3600 * 1000) {
+        sess = { start: Date.now(), base: (d && typeof d.delta === 'number') ? d.delta : 0 };
+        try { localStorage.setItem('xiaoyu.sess', JSON.stringify(sess)); } catch (e) {}
+      }
+      S.sess = sess;
       if (S.tab === 'overview') render();
     }).catch(function () {});
     var ck = 'state.' + S.ws;
@@ -1856,6 +1968,10 @@ var BUILD = '3.6.3';
     upmsg('自检已发送（服务端 xiaoyu-diag.log）');
   });
 
+  setInterval(function () {
+    var el = $('sessTime');
+    if (el && S.sess) el.textContent = Math.max(0, Math.floor((Date.now() - S.sess.start) / 60000));
+  }, 30000);
   render();
   boot();
 })();
