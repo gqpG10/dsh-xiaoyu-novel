@@ -19,9 +19,9 @@ const source = readFileSync(path.join(root, 'lib/client.js'), 'utf8')
 test('入口成对注册：main.key 与 panellist.id 同为 xiaoyu-novel-creator', () => {
   assert.match(source, /var PANEL_ID = "xiaoyu-novel-creator"/)
   assert.match(source, /register\(\{ name: "main", key: PANEL_ID \}/)
-  // 3.11.1：label 改函数 + 补 locale（对齐 dshmarket 写法，宿主 i18n 路径才取得到）
-  // 3.11.1：label 改函数 + 补 locale（对齐 dshmarket 写法，宿主 i18n 路径才取得到）
-  assert.ok(source.includes("register({ name: \"sidebar.panellist\", id: PANEL_ID, order: PANEL_ORDER, label: function () { return \"\u5c0f\u9c7c\u521b\u4f5c\u53f0\"; }, locale: \"xiaoyu-novel\" }"), "panellist \u6ce8\u518c\u884c\u5fc5\u987b\u542b\u51fd\u6570 label + locale")
+  // 3.12.3：删除 B 方案——宿主会绘制函数 label，与 PanelGlyph 自绘文字叠成两遍
+  // 3.12.3：删除 B 方案——宿主会绘制函数 label，与 PanelGlyph 自绘文字叠成两遍
+  assert.ok(source.includes('register({ name: "sidebar.panellist", id: PANEL_ID, order: PANEL_ORDER }'), 'panellist 注册行不得再带 label（宿主画函数 label 会与自绘叠两遍）')
   assert.match(source, /selectPanel === "function"/)
 })
 
