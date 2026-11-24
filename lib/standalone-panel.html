@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.12.1';
+var BUILD = '3.12.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1011,7 +1011,7 @@ var BUILD = '3.12.1';
       '<button type="button" id="gSkel" class="sm">' + (S.graphSkel ? '骨架模式（显主要）' : '全显模式（显全部）') + '</button>' +
       '<span class="muted" style="font-size:11px;margin-left:auto">拖节点 · 空白拖动平移 · 滚轮/双指缩放 · 点节点看关系</span></div>' +
       '<div style="position:relative">' +
-      '<canvas id="relcv" width="640" height="520" data-n="' + names.length + '" style="touch-action:none;width:100%;height:520px;display:block;border-radius:10px"></canvas></div>' +
+      '<canvas id="relcv" width="640" height="520" data-n="' + names.length + '" style="touch-action:none;width:100%;aspect-ratio:5/4;max-height:78vh;min-height:420px;display:block;border-radius:10px"></canvas></div>' +
       (S.graphSel >= 0 && names[S.graphSel] ? '<div class="muted" style="margin-top:6px">选中：' + esc(names[S.graphSel]) + '</div>' : '') +
       '</div><div class="card"><h3>关系 ' + list.length + ' 条</h3>' + listHtml + '</div>';
   }
@@ -1067,16 +1067,29 @@ var BUILD = '3.12.1';
       var nodes = names.map(function (n, i) {
         var ang = Math.random() * Math.PI * 2;
         var rr = i === 0 ? 0 : 60 + Math.random() * 180;
-        return { name: n, x: 320 + Math.cos(ang) * rr, y: 300 + Math.sin(ang) * rr, vx: 0, vy: 0, fx: null, fy: null };
+        return { name: n, x: W / 2 + Math.cos(ang) * rr, y: H / 2 + Math.sin(ang) * rr, vx: 0, vy: 0, fx: null, fy: null };
       });
       G = S._graph = { sig: sig, nodes: nodes, edges: order.map(function (k) { return pairMap[k]; }), alpha: 1, view: { x: 320, y: 300, scale: 0.9 }, sel: -1, needFit: true };
     }
     G.sel = S.graphSel;
 
-    var W = 640, H = 520;
+    /* 画布逻辑尺寸跟随 CSS 实际显示尺寸（3.12.2）：手机竖屏窄、桌面宽，
+       固定 640×520 在窄屏上把圆压成椭圆。每帧量容器，纵横比一变就同步
+       canvas 物理宽高与坐标体系。 */
+    var W = 640, H = 512;
+    function syncSize() {
+      var rect = cv.getBoundingClientRect();
+      var w = Math.max(280, Math.round(rect.width) || 640);
+      var h = Math.max(320, Math.round(rect.height) || 512);
+      if (w !== W || h !== H) {
+        W = w; H = h;
+        cv.width = Math.round(W * dpr);
+        cv.height = Math.round(H * dpr);
+      }
+    }
     var dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 2));
-    cv.width = W * dpr; cv.height = H * dpr;
     var ctx = cv.getContext('2d');
+    syncSize();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     function radiusOf(n) {
@@ -1133,8 +1146,8 @@ var BUILD = '3.12.1';
       });
       ns.forEach(function (n) {
         if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0; return; }
-        n.vx += (320 - n.x) * 0.0012 * a;
-        n.vy += (300 - n.y) * 0.0012 * a;
+        n.vx += (W / 2 - n.x) * 0.0012 * a;
+        n.vy += (H / 2 - n.y) * 0.0012 * a;
         n.vx *= 0.82; n.vy *= 0.82;
         n.x += Math.max(-9, Math.min(9, n.vx));
         n.y += Math.max(-9, Math.min(9, n.vy));
@@ -1173,6 +1186,12 @@ var BUILD = '3.12.1';
 
     function frame() {
       if (!cv.isConnected) return;
+      var pw = W, ph = H;
+      syncSize();
+      if (W !== pw || H !== ph) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        G.needFit = true;
+      }
       tick();
       if (G.needFit) fitView();
       ctx.fillStyle = '#171b22';
