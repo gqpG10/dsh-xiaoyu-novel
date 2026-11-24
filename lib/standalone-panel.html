@@ -65,6 +65,9 @@
   .heatrow{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #24272d}
   .heatbar{height:10px;border-radius:5px;background:#4b8bf5;min-width:2px}
   .goalbar{height:12px;border-radius:6px;background:#2e333a;overflow:hidden;flex:1 1 auto}
+  .updwrap{display:flex;gap:8px;align-items:center;flex:1 1 auto;min-width:180px}
+  .updbar{height:8px;border-radius:5px;background:#2e333a;overflow:hidden;flex:1 1 auto}
+  .updbar>div{height:100%;width:0;background:#4b8bf5;transition:width .4s}
   .goalbar>div{height:100%;background:#3fbf7f}
   .wsbtn{display:block;width:100%;text-align:left;background:transparent;border:1px solid #34383f;border-radius:10px;padding:10px 12px;margin-bottom:8px;color:#e9eaec}
   .wsbtn.cur{border-color:#4b8bf5;background:#1a2637}
@@ -97,7 +100,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.7.3';
+var BUILD = '3.7.4';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1989,11 +1992,38 @@ var BUILD = '3.7.3';
   /* 一键自更新（3.7.3）：检测到新版本后顶栏直接出「立即更新」。 */
   function doSelfUpdate(report) {
     askModal('从 GitHub 下载并安装最新版？\n更新完成后需要重启 App 才生效。', function () {
-      report('正在自更新…（下载安装可能要一会儿）');
+      var holder = document.getElementById('upmsg');
+      var wrap = document.createElement('span');
+      wrap.className = 'updwrap';
+      var bar = document.createElement('div');
+      bar.className = 'updbar';
+      var fill = document.createElement('div');
+      bar.appendChild(fill); wrap.appendChild(bar); wrap.appendChild(document.createTextNode(''));
+      var txt = document.createElement('span');
+      txt.className = 'muted'; txt.style.fontSize = '11px';
+      wrap.appendChild(txt);
+      if (holder) { holder.innerHTML = ''; holder.appendChild(wrap); }
+      var p = 5;
+      fill.style.width = p + '%';
+      var timer = setInterval(function () {
+        p = Math.min(92, p + (95 - p) * 0.18);
+        fill.style.width = p + '%';
+        txt.textContent = Math.round(p) + '%';
+      }, 500);
+      function done(msg) {
+        clearInterval(timer);
+        fill.style.width = '100%';
+        txt.textContent = '完成';
+        setTimeout(function () { upmsg(msg); }, 1600);
+      }
+      function fail(msg) {
+        clearInterval(timer);
+        upmsg(msg);
+      }
       postJson('self-update', {}).then(function (d) {
-        if (d && d.ok) report('更新完成：v' + (d.to || d.tag || '?') + ' —— 重启 App 后生效');
-        else report('没有更新：' + ((d && d.error) || (d && d.kind) || '未知原因'));
-      }).catch(function (e) { report('更新失败：' + ((e && e.message) || e)); });
+        if (d && d.ok) done('更新完成：v' + (d.to || d.tag || '?') + ' —— 重启 App 后生效');
+        else fail('没有更新：' + ((d && d.error) || (d && d.kind) || '未知原因'));
+      }).catch(function (e) { fail('更新失败：' + ((e && e.message) || e)); });
     }, '立即更新');
   }
   $('btnCheck').addEventListener('click', function () {
