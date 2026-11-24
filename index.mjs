@@ -1594,7 +1594,7 @@ function loadProgress() {
 }
 
 /** 记录当天总字数（同日取最大值：删章回退不抹掉今天已记的峰值）。 */
-function recordProgress(novelDir, words) {
+function recordProgress(novelDir, words, perChapter) {
   const n = Number(words)
   if (!Number.isFinite(n) || n <= 0) return
   try {
@@ -1602,6 +1602,19 @@ function recordProgress(novelDir, words) {
     const book = all[novelDir] || (all[novelDir] = {})
     const day = todayKey()
     book[day] = Math.max(Number(book[day]) || 0, Math.round(n))
+    // 3.7.1 每章字数快照：__last 每次记账刷新；跨天第一次记账把上一天的
+    // __last 固化为 __base（今日新增的基线）。今日新增只统计「比基线字数
+    // 变多」的章——删章、移动、删后恢复都不再虚增（旧算法 today-prev 在
+    // 记账之间有波动时会算出假增量）。
+    if (perChapter && typeof perChapter === 'object') {
+      const last = book.__last
+      if (last && typeof last.date === 'string' && last.date !== day) {
+        book.__base = { date: last.date, words: last.words }
+      } else if (!last) {
+        book.__base = { date: day, words: { ...perChapter } }
+      }
+      book.__last = { date: day, words: { ...perChapter } }
+    }
     const keys = Object.keys(book).sort()
     for (const key of keys.slice(0, Math.max(0, keys.length - 120))) delete book[key]
     const home = resolveDshHome()
@@ -1961,7 +1974,13 @@ export async function registerCreatorRoutes(ctx) {
           const scored = Object.values(gates).filter((g) => g && g.ok)
           const failed = scored.filter((g) => g.human < cfg.passMark).length
           const totalWords = scored.reduce((sum, g) => sum + (Number(g.words) || 0), 0)
-          if (totalFiles <= 200) recordProgress(novelDir, totalWords)
+          if (totalFiles <= 200) {
+            const perChapter = {}
+            for (const [name, g] of Object.entries(gates)) {
+              if (g && g.ok) perChapter[name] = Number(g.words) || 0
+            }
+            recordProgress(novelDir, totalWords, perChapter)
+          }
           json(res, 200, {
             ok: true,
             python: !pythonMissing,
@@ -2043,7 +2062,11 @@ export async function registerCreatorRoutes(ctx) {
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
           // 按指纹缓存：热调用 466ms → 几毫秒（文件没动结果必然一样）。
           const { value: audit } = cachedResult('audit', novelFingerprint(novelDir), () => auditProject(novelDir))
-          recordProgress(novelDir, audit.totals.words)
+          {
+            const perChapter = {}
+            for (const c of audit.chapters || []) perChapter[c.file] = Number(c.words) || 0
+            recordProgress(novelDir, audit.totals.words, perChapter)
+          }
           json(res, 200, audit)
           return
         }
@@ -2093,15 +2116,31 @@ export async function registerCreatorRoutes(ctx) {
           // 写作进度：每日总字数快照（按作品分开），今日新增 = 今天 − 上一记录日。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
           const book = loadProgress()[novelDir] || {}
-          const keys = Object.keys(book).sort()
+          // 3.7.1: __base/__last 是非日期键，days 只取真日期
+          const keys = Object.keys(book).filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort()
           const days = keys.slice(-30).map((date) => ({ date, words: book[date] }))
           const today = days.find((d) => d.date === todayKey())
           const before = days.filter((d) => d.date !== todayKey()).pop() || null
+          // 3.7.1: 基线法今日新增——只算比上次基线「字数变多」的章，新章全算
+          let todayNew = null
+          const lastSnap = book.__last
+          const baseSnap = book.__base
+          if (baseSnap && baseSnap.words && lastSnap && lastSnap.words) {
+            let sum = 0
+            for (const [file, curW] of Object.entries(lastSnap.words)) {
+              const cur = Number(curW) || 0
+              if (!Object.prototype.hasOwnProperty.call(baseSnap.words, file)) { sum += cur; continue }
+              const prev = Number(baseSnap.words[file])
+              if (cur > prev) sum += cur - prev
+            }
+            todayNew = sum
+          }
           json(res, 200, {
             ok: true,
             today: today ? today.words : null,
             previous: before ? before.words : null,
             delta: today && before ? today.words - before.words : null,
+            todayNew,
             days,
           })
           return

@@ -97,7 +97,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.7.0';
+var BUILD = '3.7.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -216,7 +216,7 @@ var BUILD = '3.7.0';
   function sessRow() {
     if (!S.sess) return '';
     var mins = Math.max(0, Math.floor((Date.now() - S.sess.start) / 60000));
-    var gain = (S.progress && typeof S.progress.delta === 'number') ? S.progress.delta - S.sess.base : 0;
+    var gain = (progToday() || 0) - S.sess.base;
     return '<div class="row"><span class="k">本时段</span><span class="v"><span id="sessTime">' + mins + '</span> 分钟 · +' + Math.max(0, gain) + ' 字' +
       ' <button type="button" id="sessReset" class="sm">重新计时</button></span></div>';
   }
@@ -224,7 +224,7 @@ var BUILD = '3.7.0';
   function goalHtml() {
     var goal = 4000;
     try { goal = Number(localStorage.getItem('xiaoyu.dailyGoal')) || 4000; } catch (e) {}
-    var today = (S.progress && typeof S.progress.delta === 'number') ? Math.max(0, S.progress.delta) : 0;
+    var today = Math.max(0, progToday() || 0);
     var pct = Math.min(100, Math.round(today / goal * 100));
     return sessRow() + '<div class="row"><span class="k">日更目标</span><span class="v" style="display:flex;gap:8px;align-items:center">' +
       '<input id="goalInput" type="number" value="' + goal + '" style="width:5em">' +
@@ -233,13 +233,16 @@ var BUILD = '3.7.0';
   }
 
   /* 今日新增字数：progress 接口（门禁/体检跑过才有记账）。 */
+  function progToday() {
+    if (!S.progress) return null;
+    if (typeof S.progress.todayNew === 'number') return S.progress.todayNew;
+    if (typeof S.progress.delta === 'number') return S.progress.delta;
+    return null;
+  }
   function todayWords() {
-    if (!S.progress) return '';
-    if (S.progress.delta != null) {
-      var dl = S.progress.delta;
-      return (dl > 0 ? '+' : '') + dl + ' 字';
-    }
-    return '今天还没记录（跑一次门禁或体检就开始记账）';
+    var tn = progToday();
+    if (tn == null) return '今天还没记录（跑一次门禁或体检就开始记账）';
+    return (tn > 0 ? '+' : '') + tn + ' 字';
   }
 
   /* ── 本地缓存：重进面板秒开，后台静默刷新 ── */
@@ -1870,7 +1873,7 @@ var BUILD = '3.7.0';
       var sess = null;
       try { sess = JSON.parse(localStorage.getItem('xiaoyu.sess') || 'null'); } catch (e) {}
       if (!sess || Date.now() - sess.start > 6 * 3600 * 1000) {
-        sess = { start: Date.now(), base: (d && typeof d.delta === 'number') ? d.delta : 0 };
+        sess = { start: Date.now(), base: (d && (typeof d.todayNew === 'number' ? d.todayNew : (typeof d.delta === 'number' ? d.delta : 0))) || 0 };
         try { localStorage.setItem('xiaoyu.sess', JSON.stringify(sess)); } catch (e) {}
       }
       S.sess = sess;
