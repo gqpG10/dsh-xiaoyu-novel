@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.12.5';
+var BUILD = '3.12.6';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1017,6 +1017,9 @@ var BUILD = '3.12.5';
   }
   function drawGraph() {
     var cv = $('relcv'); if (!cv) return;
+    /* W/H 声明提前（3.12.6）：物理坐标尺寸的全函数作用域声明，任何引用
+       它的代码（向心力/视图/种子兜底）都不许再碰提升期的 undefined。 */
+    var W = 640, H = 512;
     var list = (S.data && S.data.relations) || [];
     if (S.castFilter) list = list.filter(function (r) { return S.castFilter.indexOf(r.a) >= 0 && S.castFilter.indexOf(r.b) >= 0; });
     var names = [], score = {};
@@ -1067,7 +1070,10 @@ var BUILD = '3.12.5';
       var nodes = names.map(function (n, i) {
         var ang = Math.random() * Math.PI * 2;
         var rr = i === 0 ? 0 : 60 + Math.random() * 180;
-        return { name: n, x: W / 2 + Math.cos(ang) * rr, y: H / 2 + Math.sin(ang) * rr, vx: 0, vy: 0, fx: null, fy: null };
+        /* 3.12.6：字面量种子（W/H 声明在本行之后，var 提升是 undefined，
+           undefined/2=NaN——节点出生即 NaN，canvas 静默不画：黑底无图
+           无报错的真凶。「重新布局」按钮一直用字面量所以能救活——铁证。 */
+        return { name: n, x: 320 + Math.cos(ang) * rr, y: 300 + Math.sin(ang) * rr, vx: 0, vy: 0, fx: null, fy: null };
       });
       G = S._graph = { sig: sig, nodes: nodes, edges: order.map(function (k) { return pairMap[k]; }), alpha: 1, view: { x: 320, y: 300, scale: 0.9 }, sel: -1, needFit: true };
     }
@@ -1079,16 +1085,23 @@ var BUILD = '3.12.5';
     /* 画布逻辑尺寸跟随 CSS 实际显示尺寸（3.12.2）：手机竖屏窄、桌面宽，
        固定 640×520 在窄屏上把圆压成椭圆。每帧量容器，纵横比一变就同步
        canvas 物理宽高与坐标体系。 */
-    var W = 640, H = 512;
     function syncSize() {
+      /* 3.12.6：rect 为 0（tab 刚插入、布局未完成）不算数——保持现有尺寸下帧
+         再量；量到真实尺寸才更新物理缓冲。布局稳定前 needFit 一直挂着，
+         fitView 不会用错误尺寸算死视图（首屏空白的主嫌疑）。 */
       var rect = cv.getBoundingClientRect();
-      var w = Math.max(280, Math.round(rect.width) || 640);
-      var h = Math.max(320, Math.round(rect.height) || 512);
-      if (w !== W || h !== H) {
-        W = w; H = h;
-        cv.width = Math.round(W * dpr);
-        cv.height = Math.round(H * dpr);
+      if (rect.width > 4 && rect.height > 4) {
+        var w = Math.round(rect.width);
+        var h = Math.round(rect.height);
+        if (w !== W || h !== H) {
+          W = w; H = h;
+          cv.width = Math.round(W * dpr);
+          cv.height = Math.round(H * dpr);
+          G.needFit = true;
+        }
+        return true;
       }
+      return false;
     }
     var dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 2));
     var ctx = cv.getContext('2d');
@@ -1196,7 +1209,21 @@ var BUILD = '3.12.5';
       if (!cv.isConnected) return;
       /* 3.12.5 异常防护：单帧抛错只丢这一帧，动画链不断——否则一帧炸了
          rAF 永停，图直接黑屏，只能反复重渲染碰运气。 */
-      try { drawFrame(); } catch (err) { try { console.warn("[xiaoyu] graph frame:", err); } catch (e2) {} }
+      try { drawFrame(); } catch (err) {
+        try {
+          console.warn("[xiaoyu] graph frame:", err);
+          G._err = String((err && err.message) || err).slice(0, 120);
+        } catch (e2) {}
+      }
+      /* 画布直报（3.12.6 修位）：画在 catch 之后——drawFrame 半途抛错时这段
+         也要能画出来（放 drawFrame 尾部会被同一次异常吞掉，永远看不见）。 */
+      if (G._err) {
+        try {
+          ctx.fillStyle = '#ff8899'; ctx.font = '11px monospace';
+          ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+          ctx.fillText('[图渲染异常] ' + G._err, 16, H - 14);
+        } catch (e3) {}
+      }
       cv._raf = requestAnimationFrame(frame);
     }
     function drawFrame() {
@@ -1215,7 +1242,7 @@ var BUILD = '3.12.5';
         } else { G._steady = null; }
         tick();
       }
-      if (G.needFit) fitView();
+      if (G.needFit) { try { fitView(); } catch (e3) { G.needFit = false; } }
       ctx.fillStyle = '#171b22';
       ctx.fillRect(0, 0, W, H);
       var bg = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W / 1.3);
