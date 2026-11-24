@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.8.1';
+var BUILD = '3.8.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -498,6 +498,10 @@ var BUILD = '3.8.1';
 
   /* ── 待办工作台：体检警告 + 门禁不及格 + 伏笔悬空 汇总 ── */
   function todoKey(s) { return String(s).slice(0, 60); }
+  function allDone() {
+    var rows = S.todoRows || [];
+    return rows.length > 0 && rows.every(function (r) { return S.todoDone[todoKey(r.t + r.txt)]; });
+  }
   function vTodo() {
     if (!S.check) get('check', wsQuery()).then(function (d) { S.check = d; render(); }).catch(function () { S.check = { ok:true, problems:[] }; });
     var rows = [];
@@ -520,7 +524,7 @@ var BUILD = '3.8.1';
         '</div>';
     }).join('');
     return '<div class="card"><h3>待办 <span class="badge">' + rows.length + ' 项 · 勾选即记已处理</span>' +
-      ' <button type="button" id="todoAll" class="sm">全选</button>' +
+      ' <button type="button" id="todoAll" class="sm">' + (allDone() ? '全不选' : '全选') + '</button>' +
       ' <button type="button" id="todoClear" class="sm" style="margin-left:auto">清除已完成</button></h3>' +
       '<div class="btnrow"><button type="button" id="todoAICopy" class="sm pri">交给小鱼处理（复制任务清单）</button>' +
       '<span class="muted">把未勾选的待办打包成指令，粘贴到 DSH 对话发给小鱼</span></div>' +
@@ -529,7 +533,9 @@ var BUILD = '3.8.1';
   function bindTodo() {
     var ta = $('todoAll');
     if (ta) ta.addEventListener('click', function () {
-      ((S.todoRows) || []).forEach(function (r) { S.todoDone[todoKey(r.t + r.txt)] = true; });
+      var rows = (S.todoRows) || [];
+      var allDone = rows.length > 0 && rows.every(function (r) { return S.todoDone[todoKey(r.t + r.txt)]; });
+      rows.forEach(function (r) { S.todoDone[todoKey(r.t + r.txt)] = !allDone; });
       try { localStorage.setItem('xiaoyu.todoDone', JSON.stringify(S.todoDone)); } catch (e) {}
       render();
     });
