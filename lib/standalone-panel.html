@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.15.1';
+var BUILD = '3.15.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1676,6 +1676,9 @@ var BUILD = '3.15.1';
     var curReg = /## \s*语言档位[：:]\s*([^（(\n]+)/.exec(String((st && st.text) || ''));
     var curLabel = curReg ? curReg[1].trim() : '';
     if (plist) {
+      /* 3.15.2：商业档排前、文学档排后，未分类垫底；组内保持文件名序。 */
+      var grank = function (g) { return g === '商业' ? 0 : (g === '文学' ? 1 : 2); };
+      plist = plist.slice().sort(function (a, b) { return grank(a.group) - grank(b.group); });
       presets = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:10px">' + plist.map(function (p) {
         var id = p.register || p.id || p, label = p.label || p.name || p;
         var active = curLabel && label.indexOf(curLabel.slice(0, 4)) >= 0;
