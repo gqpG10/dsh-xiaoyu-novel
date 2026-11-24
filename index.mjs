@@ -2405,6 +2405,24 @@ function styleRegisterGroup(register) {
           json(res, 200, { ok: true, items: listStyleRegisters().map((register) => ({ register, label: styleRegisterLabel(register), desc: styleRegisterDesc(register), group: styleRegisterGroup(register) })) })
           return
         }
+        if (route === 'style-preset' && req.method === 'GET') {
+          // 3.15.3：单档位全文预览——点卡片先看内容，点「套用」才写入 style.md。
+          const register = String(url.searchParams.get('register') ?? '')
+          if (!listStyleRegisters().includes(register)) {
+            json(res, 422, { ok: false, error: '未知档位「' + register + '」' })
+            return
+          }
+          let snippet
+          try {
+            snippet = readFileSync(path.join(STYLE_PRESET_DIR, register + '.md'), 'utf8')
+          } catch {
+            json(res, 500, { ok: false, error: '档位模板缺失' })
+            return
+          }
+          const text = snippet.split('\n').slice(1).filter((l) => !/^<!--\s*(desc|group):/.test(l)).join('\n').trim()
+          json(res, 200, { ok: true, register, label: styleRegisterLabel(register), desc: styleRegisterDesc(register), group: styleRegisterGroup(register), text })
+          return
+        }
 
         if (route === 'style-register' && req.method === 'POST') {
           // 套用语言档位：把 templates/novel/style-presets/<档位>.md 的正文

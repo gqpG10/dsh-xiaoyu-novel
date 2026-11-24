@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.15.3';
+var BUILD = '3.15.4';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1702,7 +1702,7 @@ var BUILD = '3.15.3';
         (pv.desc ? '<div class="muted" style="margin-bottom:8px">' + esc(pv.desc) + '</div>' : '') +
         (pv.loading ? '<div class="note">正在读取档位内容…</div>' :
           (pv.err ? '<div class="err">' + esc(pv.err) + '</div>' :
-            '<pre style="white-space:pre-wrap;font-size:12.5px;line-height:1.7;margin:0 0 12px;color:#dfe6f0;background:#141925;border:1px solid #2a3346;border-radius:10px;padding:12px 14px">' + esc(pv.text || '（空）') + '</pre>')) +
+            '<pre style="white-space:pre-wrap;font-size:12.5px;line-height:1.7;margin:0 0 12px;color:#dfe6f0;background:#141925;border:1px solid #2a3346;border-radius:10px;padding:12px 14px;max-height:42vh;overflow:auto">' + esc(pv.text || '（空）') + '</pre>')) +
         '<div class="btnrow"><button type="button" id="presetApply" class="sm pri"' + (pv.loading || pv.err ? ' disabled' : '') + '>套用此档位</button>' +
         '<button type="button" id="presetBack" class="sm">返回列表</button></div>' +
         '<div class="muted" style="margin-top:6px">套用只改 style.md 的「## 语言」节，其他节不动。</div></div>';
@@ -1715,8 +1715,9 @@ var BUILD = '3.15.3';
       '<div class="muted" style="margin-top:6px">外部改过会 409 拒写；改完点保存即生效，不需要重启。</div></div>';
   }
   function bindStyle() {
-    var save = $('styleSave'); if (!save) return;
-    save.addEventListener('click', function () {
+    /* 3.15.4：不能因 styleSave 不存在就 return——预览视图没有保存框，会把返回/套用按钮一起跳过。 */
+    var save = $('styleSave');
+    if (save) save.addEventListener('click', function () {
       var text = $('styleText').value;
       var base = (S.style && S.style.found) ? S.style.hash : undefined;
       note('保存风格…');
