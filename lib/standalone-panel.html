@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.10.1';
+var BUILD = '3.10.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -498,6 +498,10 @@ var BUILD = '3.10.1';
 
   /* ── 待办工作台：体检警告 + 门禁不及格 + 伏笔悬空 汇总 ── */
   function todoKey(s) { return String(s).slice(0, 60); }
+  /* 体检问题行的统一勾选键：待办页与体检页共用同一把钥匙，勾一处两边同步。 */
+  function problemKey(p) {
+    return todoKey((p.level === 'error' ? '错误' : '警告') + (p.file ? p.file + '：' : '') + (p.message || ''));
+  }
   function allDone() {
     var rows = S.todoRows || [];
     return rows.length > 0 && rows.every(function (r) { return S.todoDone[todoKey(r.t + r.txt)]; });
@@ -580,12 +584,14 @@ var BUILD = '3.10.1';
     var out = '';
     if (S.check && S.check.problems) {
       var ps = S.check.problems;
-      out += '<div class="card"><h3>静态体检 <span class="badge">' + ps.length + ' 项</span></h3>' +
+      var psAllDone = ps.length > 0 && ps.every(function (p) { return S.todoDone[problemKey(p)]; });
+      out += '<div class="card"><h3>静态体检 <span class="badge">' + ps.length + ' 项</span>' +
+        (ps.length ? ' <button type="button" id="auditAll" class="sm">' + (psAllDone ? '全不选' : '全选') + '</button>' : '') + '</h3>' +
         (ps.length ? ps.map(function (p) {
           var col = p.level === 'error' ? 'bad' : (p.level === 'warn' ? 'mid' : '');
           return '<div class="row"><span class="k"><span class="pill ' + col + '">' + esc(p.level || '?') + '</span></span>' +
             '<span class="v">' + esc((p.file ? p.file + '：' : '') + (p.message || '')) +
-            ' <input type="checkbox" class="todoChk" data-k="' + esc(todoKey('警告' + (p.file || '') + (p.message || ''))) + '"' + (S.todoDone[todoKey('警告' + (p.file || '') + (p.message || ''))] ? ' checked' : '') + '></span></div>';
+            ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
     out += '<div class="card"><h3>全书体检' + (S.auditBusy ? '<span class="badge">计算中…</span>' : '') + '</h3>' +
@@ -627,6 +633,14 @@ var BUILD = '3.10.1';
   }
 
   function bindAudit() {
+    var aa = $('auditAll');
+    if (aa) aa.addEventListener('click', function () {
+      var ps = (S.check && S.check.problems) || [];
+      var done = ps.length > 0 && ps.every(function (p) { return S.todoDone[problemKey(p)]; });
+      ps.forEach(function (p) { S.todoDone[problemKey(p)] = !done; });
+      try { localStorage.setItem('xiaoyu.todoDone', JSON.stringify(S.todoDone)); } catch (e) {}
+      render();
+    });
     var ar = $('btnAuditReport');
     if (ar) ar.addEventListener('click', function () {
       note('生成体检报告…');
@@ -991,6 +1005,36 @@ var BUILD = '3.10.1';
       var s = score[n] || 0;
       return s >= 25 ? { c: '#ff6b7d', t: '核心' } : (s >= 12 ? { c: '#ffb454', t: '重要' } : (s >= 5 ? { c: '#5cc9ff', t: '次要' } : { c: '#8891a0', t: '边缘' }));
     }
+    /* 关系类型 → 颜色与线型：不同关系一眼可辨（关键词顺序决定优先级：
+       敌对最先，亲情先于恋情——「亲情」不能落进恋情色）。 */
+    var relStyles = [
+      { k: ['敌', '仇', '恨'], c: '#ff5252', dash: [10, 6], n: '敌对' },
+      { k: ['父', '母', '兄', '弟', '姐', '妹', '亲', '家'], c: '#ffb454', dash: [], n: '亲情' },
+      { k: ['友', '盟', '伴', '伙'], c: '#4fd1a5', dash: [], n: '友情' },
+      { k: ['恋', '爱', '情', '妻', '夫', '侣'], c: '#ff6b7d', dash: [], n: '恋情' },
+      { k: ['师', '徒', '教'], c: '#b48cff', dash: [2, 7], n: '师徒' },
+      { k: ['竞', '对手'], c: '#ffcc66', dash: [12, 5, 2, 5], n: '竞争' }
+    ];
+    function relStyle(t) {
+      var s = String(t || '');
+      for (var i = 0; i < relStyles.length; i++) {
+        var ks = relStyles[i].k;
+        for (var j = 0; j < ks.length; j++) if (s.indexOf(ks[j]) >= 0) return relStyles[i];
+      }
+      return { c: '#7f93ad', dash: [], n: '其他' };
+    }
+    /* 同一对人物的多条并行关系：图上只画最重要的一条（强度最高），其余折叠成
+       线上标签的「+N」；选中角色看详情卡仍是全量清单，数据一条不丢。 */
+    var pairMap = {}, order = [];
+    list.forEach(function (r) {
+      var ai = names.indexOf(r.a), bi = names.indexOf(r.b);
+      if (ai < 0 || bi < 0) return;
+      var key = ai < bi ? ai + '|' + bi : bi + '|' + ai;
+      var cur = pairMap[key];
+      if (!cur) { cur = pairMap[key] = { edge: r, ai: ai, bi: bi, extra: 0 }; order.push(key); return; }
+      if (Number(r.intensity || 1) > Number(cur.edge.intensity || 1)) cur.edge = r;
+      cur.extra++;
+    });
     var ctx = cv.getContext('2d');
     /* 高清渲染：按设备像素密度放大位图，坐标系仍用 640 逻辑坐标（防高分屏发糊）。 */
     var dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 2));
@@ -1008,19 +1052,23 @@ var BUILD = '3.10.1';
     ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
     ctx.lineWidth = 1.5;
     var t0 = (Date.now() / 1600) % (2 * Math.PI);
-    list.forEach(function (r) {
-      var ai = names.indexOf(r.a), bi = names.indexOf(r.b);
-      if (ai < 0 || bi < 0) return;
+    order.forEach(function (key) {
+      var p = pairMap[key];
+      var r = p.edge, ai = p.ai, bi = p.bi;
       var hot = S.graphSel >= 0 && (ai === S.graphSel || bi === S.graphSel);
       var inten = Math.min(5, Math.max(1, Number(r.intensity || 1)));
-      /* 二次贝塞尔柔和弧线，强度映射粗细与透明度 */
+      var st = relStyle(r.type);
+      /* 二次贝塞尔柔和弧线：颜色与线型跟关系类型走，粗细与透明度跟强度走 */
       var mx0 = (pos[ai].x + pos[bi].x) / 2, my0 = (pos[ai].y + pos[bi].y) / 2;
       var dx = pos[bi].x - pos[ai].x, dy = pos[bi].y - pos[ai].y;
       var len = Math.sqrt(dx * dx + dy * dy) || 1;
       var cxp = mx0 - (dy / len) * 26, cyp = my0 + (dx / len) * 26;
-      ctx.strokeStyle = hot ? '#4b8bf5' : 'rgba(120,140,170,' + (0.28 + inten * 0.07) + ')';
+      ctx.setLineDash(st.dash);
+      ctx.globalAlpha = hot ? 1 : Math.min(0.85, 0.34 + inten * 0.08);
+      ctx.strokeStyle = hot ? '#9cc0ff' : st.c;
       ctx.lineWidth = hot ? 4 : (1.2 + inten * 0.5);
       ctx.beginPath(); ctx.moveTo(pos[ai].x, pos[ai].y); ctx.quadraticCurveTo(cxp, cyp, pos[bi].x, pos[bi].y); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
       /* 选中关系：沿弧线流动的光点 */
       if (hot) {
         for (var f = 0; f < 3; f++) {
@@ -1034,14 +1082,14 @@ var BUILD = '3.10.1';
       /* 线上标关系类型 */
       var mxt = (pos[ai].x + pos[bi].x) / 2, myt = (pos[ai].y + pos[bi].y) / 2;
       mxt = mxt + (cyp - myt) * 0.18; myt = myt + (my0 - cyp) * 0.18;
-      var tag = String(r.type || (r.description && String(r.description).slice(0, 6)) || '').slice(0, 8);
+      var tag = String(r.type || (r.description && String(r.description).slice(0, 6)) || '').slice(0, 8) + (p.extra ? ' +' + p.extra : '');
       if (tag) {
         ctx.font = (hot ? 'bold ' : '') + '15px sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         var tw = ctx.measureText(tag).width;
         ctx.fillStyle = hot ? '#152643' : '#171b22';
         ctx.fillRect(mxt - tw / 2 - 6, myt - 11, tw + 12, 22);
-        ctx.strokeStyle = hot ? '#3d5a8a' : '#2a313c';
+        ctx.strokeStyle = hot ? '#3d5a8a' : st.c;
         ctx.lineWidth = 1; ctx.strokeRect(mxt - tw / 2 - 6, myt - 11, tw + 12, 22);
         ctx.fillStyle = hot ? '#9cc0ff' : '#b8c2cf';
         ctx.fillText(tag, mxt, myt + 1);
@@ -1092,7 +1140,8 @@ var BUILD = '3.10.1';
     ctx.fillText((S.castFilter ? '本章关系图' : '全书关系图'), 22, 34);
     ctx.font = '13px sans-serif';
     ctx.fillStyle = '#8d939c';
-    ctx.fillText(names.length + ' 人 · ' + list.length + ' 关系 · 主角：' + (names[0] || '—'), 22, 54);
+    var folded = list.length - order.length;
+    ctx.fillText(names.length + ' 人 · ' + list.length + ' 关系 · ' + order.length + ' 条线' + (folded ? '（并行折叠 ' + folded + '）' : '') + ' · 主角：' + (names[0] || '—'), 22, 54);
     var leg = [['#ff6b7d', '核心'], ['#ffb454', '重要'], ['#5cc9ff', '次要'], ['#8891a0', '边缘']];
     leg.forEach(function (l, i) {
       var ly = 76 + i * 20;
@@ -1100,6 +1149,16 @@ var BUILD = '3.10.1';
       ctx.fillStyle = l[0]; ctx.fill();
       ctx.fillStyle = '#9aa3b0'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
       ctx.fillText(l[1], 40, ly + 4);
+    });
+    /* 线型图例：不同关系类型不同颜色与线型 */
+    relStyles.forEach(function (l, i) {
+      var ly = 176 + i * 18;
+      ctx.setLineDash(l.dash);
+      ctx.beginPath(); ctx.moveTo(22, ly); ctx.lineTo(50, ly);
+      ctx.strokeStyle = l.c; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#9aa3b0'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(l.n, 56, ly + 4);
     });
     /* 选中角色的详情卡：直接画在图上，不用去翻下方列表 */
     if (S.graphSel >= 0 && names[S.graphSel]) {
@@ -1937,6 +1996,11 @@ var BUILD = '3.10.1';
 
   /* ── 渲染 ── */
   function render() {
+    /* 输入中防冲刷：异步 render（进度/快照/gates 回包）会重建 DOM，把正在
+       输入的日更目标框连值带焦点一起冲掉，change 事件也随节点移除而丢失
+       （「日更目标改不了」的根因）。先记住焦点，渲完还回去。 */
+    var refocus = null;
+    try { if (document.activeElement && document.activeElement.id === 'goalInput') refocus = 'goalInput'; } catch (e) {}
     tabBar();
     $('build').textContent = 'b' + BUILD;
     var v = $('view');
@@ -1975,6 +2039,7 @@ var BUILD = '3.10.1';
         var q2 = $('q'); if (q2) { q2.focus(); try { q2.setSelectionRange(pos, pos); } catch (e) {} }
       });
     }
+    if (refocus) { var rf = $(refocus); if (rf) rf.focus(); }
   }
 
   /* 只读章纲查看器（搜索命中章纲时用；outlines 不在可写白名单，不给编辑）。 */
@@ -2049,10 +2114,16 @@ var BUILD = '3.10.1';
       loadState();
     });
     var gi = $('goalInput');
-    if (gi) gi.addEventListener('change', function () {
-      try { localStorage.setItem('xiaoyu.dailyGoal', String(Number(gi.value) || 4000)); } catch (e) {}
-      render();
-    });
+    if (gi) {
+      /* 边打字边落盘：值实时进 localStorage，任何异步 render 重建出来的输入框
+         都是最新值；render 末尾的 refocus 守卫把焦点还回来，打字不中断。 */
+      var saveGoal = function () {
+        var g = Math.max(100, Math.round(Number(gi.value) || 4000));
+        try { localStorage.setItem('xiaoyu.dailyGoal', String(g)); } catch (e) {}
+      };
+      gi.addEventListener('input', function () { saveGoal(); render(); });
+      gi.addEventListener('change', function () { saveGoal(); render(); });
+    }
   }
 
   function loadState() {

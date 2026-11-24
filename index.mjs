@@ -2167,14 +2167,47 @@ export async function registerCreatorRoutes(ctx) {
             json(res, 503, { ok: false, error: '当前宿主不支持移除工作区（只能接入，不能摘除）' })
             return
           }
+          // 0.24.0 修正：宿主 WorkspaceRegistry.delete(id) 吃的是「工作区 id」
+          // 而不是路径；传路径查不到实体会静默返回 false（不抛错），之前直接
+          // 把路径塞进去删，永远假成功（ok:true 但列表原样）。现在先从 list()
+          // 按 canonical 路径定位实体拿到 id 再删，删完重读登记表实测验证。
+          const listOrNull = () => {
+            try {
+              return typeof registry.list === 'function' ? registry.list() : null
+            } catch {
+              return null
+            }
+          }
+          const snapshot = listOrNull()
+          if (snapshot === null) {
+            json(res, 503, { ok: false, error: '工作区登记表读取失败，无法安全移除' })
+            return
+          }
+          const want = path.resolve(target)
+          const entry = snapshot.find((e) => e && typeof e.path === 'string' && path.resolve(e.path) === want)
+          if (!entry) {
+            json(res, 404, { ok: false, error: '该路径不在登记表中（可能已移除过，或从未登记）' })
+            return
+          }
+          // id 优先（宿主 delete(id) 语义）；没有 id 字段的宿主退回实体本身。
+          const arg = entry.id !== undefined && entry.id !== null ? entry.id : entry
+          let removed
           try {
-            await fn.call(registry, target)
+            removed = await fn.call(registry, arg)
           } catch (error) {
             json(res, 400, { ok: false, error: sanitizeWithRoots(String(error && error.message ? error.message : error)) })
             return
           }
+          // 删完重读登记表实测：个别宿主对未知 id 静默返回 false/undefined，
+          // 不实测等于假成功。
+          const after = listOrNull()
+          const stillListed = after === null ? true : after.some((e) => e && typeof e.path === 'string' && path.resolve(e.path) === want)
+          if (removed === false || stillListed) {
+            json(res, 500, { ok: false, error: '宿主删除接口未生效，该工作区仍在登记表中' })
+            return
+          }
           invalidateAllCaches()
-          json(res, 200, { ok: true, path: target })
+          json(res, 200, { ok: true, path: target, id: entry.id != null ? String(entry.id) : null })
           return
         }
 
