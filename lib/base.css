@@ -40,13 +40,19 @@
   text-overflow: ellipsis;
 }
 .myt-footerBtn.myt-footerRail {
-  border-radius: 50%;
-  justify-content: center;
-  gap: 0;
-  width: 36px;
+  /* 3.9.0: 窄栏不再收成圆钮——文字常驻（Windows 窄侧栏用户文字消失的根修），
+     图标缩小 + 文字截断，宽度仍贴满窄栏行高。 */
+  border-radius: var(--dsw-radius-sm, 10px);
+  justify-content: flex-start;
+  gap: 6px;
+  width: calc(100% + 4px);
   height: 36px;
-  margin: 8px 0 10px;
-  padding: 0;
+  margin: 4px 0 6px;
+  padding: 0 8px 0 8px;
+  font-size: 13px;
+}
+.myt-footerBtn.myt-footerRail .myt-footerLabel {
+  max-width: 9em;
 }
 
 /* 宿主 footerActions 默认横向 flex，多个插件动作会挤成一行；改一行一个。
