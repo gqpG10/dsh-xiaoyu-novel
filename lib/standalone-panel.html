@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.10.0';
+var BUILD = '3.10.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1077,15 +1077,56 @@ var BUILD = '3.10.0';
       ctx.font = ((hot || hero) ? 'bold ' : '') + (hero ? '18' : '16') + 'px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
       ctx.fillText(String(n).slice(0, 6), pos[i].x, pos[i].y - (rad + 12));
+      /* 人名下加 tier + 关系数，选中和重要角色才显示（避免拥挤） */
+      if (hot || tr.t === '核心' || hero) {
+        var deg = list.filter(function (r) { return r.a === n || r.b === n; }).length;
+        ctx.fillStyle = tr.c; ctx.font = '11px sans-serif';
+        ctx.fillText(tr.t + ' · ' + deg + '条', pos[i].x, pos[i].y - (rad + 28));
+      }
     });
-    /* 图例：颜色 = 重要程度（关系强度总和） */
-    var leg = [['#ef5b5b', '核心 ≥25'], ['#e5a063', '重要 ≥12'], ['#6fa8ff', '次要 ≥5'], ['#5b6470', '边缘 <5']];
+    /* 图例：颜色 = 重要程度（关系强度总和），新配色 */
+    /* 左上信息面板：统计 + 图例 + 选中详情（信息明确点） */
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillStyle = '#e8ecf3';
+    ctx.fillText((S.castFilter ? '本章关系图' : '全书关系图'), 22, 34);
+    ctx.font = '13px sans-serif';
+    ctx.fillStyle = '#8d939c';
+    ctx.fillText(names.length + ' 人 · ' + list.length + ' 关系 · 主角：' + (names[0] || '—'), 22, 54);
+    var leg = [['#ff6b7d', '核心'], ['#ffb454', '重要'], ['#5cc9ff', '次要'], ['#8891a0', '边缘']];
     leg.forEach(function (l, i) {
-      ctx.beginPath(); ctx.arc(28 + i * 152, H - 16, 7, 0, Math.PI * 2);
+      var ly = 76 + i * 20;
+      ctx.beginPath(); ctx.arc(28, ly, 6, 0, Math.PI * 2);
       ctx.fillStyle = l[0]; ctx.fill();
-      ctx.fillStyle = '#8d939c'; ctx.font = '13px sans-serif'; ctx.textAlign = 'left';
-      ctx.fillText(l[1], 40 + i * 152, H - 11);
+      ctx.fillStyle = '#9aa3b0'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(l[1], 40, ly + 4);
     });
+    /* 选中角色的详情卡：直接画在图上，不用去翻下方列表 */
+    if (S.graphSel >= 0 && names[S.graphSel]) {
+      var selN = names[S.graphSel];
+      var selRels = list.filter(function (r) { return r.a === selN || r.b === selN; });
+      var bx = W - 200, by = 76, bw = 178, bh = 44 + Math.min(6, selRels.length) * 24 + 20;
+      ctx.fillStyle = 'rgba(20,26,38,0.92)';
+      ctx.strokeStyle = selRels.length ? tier(selN).c : '#2a313c';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, 12); } else { ctx.rect(bx, by, bw, bh); }
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e8ecf3'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(selN, bx + 12, by + 24);
+      ctx.fillStyle = tier(selN).c; ctx.font = '12px sans-serif';
+      ctx.fillText(tier(selN).t + ' · 权重 ' + (score[selN] || 0) + ' · ' + selRels.length + ' 条关系', bx + 12, by + 42);
+      selRels.slice(0, 6).forEach(function (r, i) {
+        var other = r.a === selN ? r.b : r.a;
+        var ry = by + 66 + i * 24;
+        ctx.fillStyle = '#c9d2df'; ctx.font = '12px sans-serif';
+        ctx.fillText('· ' + other + '（' + (r.type || '关系') + ' 强' + (r.intensity || 1) + '）', bx + 12, ry);
+      });
+      if (selRels.length > 6) {
+        ctx.fillStyle = '#8d939c'; ctx.font = '12px sans-serif';
+        ctx.fillText('…还有 ' + (selRels.length - 6) + ' 条，看下方列表', bx + 12, by + 66 + 6 * 24);
+      }
+    }
     cv.positions = pos; cv.names = names;
     if (!cv._bound) {
       cv._bound = true;
