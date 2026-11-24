@@ -55,6 +55,28 @@
   .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
   .cbody{max-height:62vh;overflow-y:auto}
   .foldbtn{margin-left:auto;background:transparent;border:none;color:#8d939c;min-height:22px;padding:0 6px;font-size:12px;flex:none}
+  .ln{min-height:1.2em}
+  .ln.hl{background:#3d3410;border-radius:4px}
+  .diffdel{color:#ff9d9d;background:#2a1a1c;border-radius:4px;padding:0 4px;display:block}
+  .diffadd{color:#7fe0a8;background:#15291c;border-radius:4px;padding:0 4px;display:block}
+  .lane{position:relative;height:26px;border-bottom:1px solid #24272d}
+  .lane .lanebar{position:absolute;top:9px;height:8px;border-radius:4px;background:#4b8bf5}
+  .lane .lanedot{position:absolute;top:6px;width:14px;height:14px;border-radius:50%;background:#e5a063;border:2px solid #10181c}
+  .heatrow{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #24272d}
+  .heatbar{height:10px;border-radius:5px;background:#4b8bf5;min-width:2px}
+  .goalbar{height:12px;border-radius:6px;background:#2e333a;overflow:hidden;flex:1 1 auto}
+  .goalbar>div{height:100%;background:#3fbf7f}
+  .wsbtn{display:block;width:100%;text-align:left;background:transparent;border:1px solid #34383f;border-radius:10px;padding:10px 12px;margin-bottom:8px;color:#e9eaec}
+  .wsbtn.cur{border-color:#4b8bf5;background:#1a2637}
+  .todorow{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #24272d}
+  body.light{background:#f3f4f7;color:#22252a}
+  body.light .bar,body.light nav.tabs{background:#fff;border-color:#e2e4e9}
+  body.light .card{background:#fff;border-color:#e2e4e9}
+  body.light .muted,body.light .k,body.light .badge{color:#6a7078}
+  body.light select,body.light button,body.light input,body.light textarea{background:#eceef2;border-color:#d5d8de;color:#22252a}
+  body.light .body,body.light canvas{background:#fafbfc}
+  body.light nav.tabs button{color:#565c66}
+  body.light nav.tabs button[aria-current="true"]{color:#111;background:#e6e9ef}
 </style></head>
 <body>
 
@@ -65,6 +87,7 @@
   <span class="grow"></span>
   <button id="btnReload" type="button">刷新</button>
   <button id="btnCheck" type="button">检测更新</button>
+  <button id="btnTheme" type="button">主题</button>
   <button id="btnDiag" type="button" class="pri">自检</button>
   <span id="upmsg" style="font-size:11.5px;color:#8d939c;flex:1 1 100%;min-width:0;overflow-wrap:anywhere"></span>
 </div>
@@ -74,11 +97,11 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.5.8';
+var BUILD = '3.6.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
-  var TABS = [['overview','概览'],['project','项目'],['chapters','章节'],['gate','门禁'],['audit','体检'],
+  var TABS = [['overview','概览'],['project','项目'],['chapters','章节'],['gate','门禁'],['audit','体检'],['todo','待办'],
               ['characters','角色'],['foreshadows','伏笔'],['relations','关系'],['timeline','时间线'],
               ['world','设定'],['index','索引'],['style','风格'],
               ['search','搜索'],['tools','工具'],['history','版本']];
@@ -96,7 +119,7 @@ var BUILD = '3.5.8';
             proj:null,
             trash:null, ledger:null, slim:null,
             git:null, gitLog:null, versionsFile:'', versions:null,
-            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null };
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, hlLine:0, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -144,6 +167,31 @@ var BUILD = '3.5.8';
     return g.human >= pm ? 'good' : (g.human >= pm - 15 ? 'mid' : 'bad');
   }
   function wsQuery() { return { path: S.ws }; }
+
+  function weekWords() {
+    var days = (S.progress && S.progress.days) || [];
+    var sum = 0;
+    for (var i = Math.max(0, days.length - 7); i < days.length; i++) sum += Number(days[i].words || 0);
+    var first = days.length ? days[0].words : 0;
+    return (sum - first) > 0 ? '+' + (sum - first) + ' 字' : '';
+  }
+  function streakDays() {
+    var days = (S.progress && S.progress.days) || [];
+    if (!days.length) return 0;
+    var n = 1;
+    for (var i = days.length - 1; i > 0; i--) n += 1;
+    return days.length;
+  }
+  function goalHtml() {
+    var goal = 4000;
+    try { goal = Number(localStorage.getItem('xiaoyu.dailyGoal')) || 4000; } catch (e) {}
+    var today = (S.progress && typeof S.progress.delta === 'number') ? Math.max(0, S.progress.delta) : 0;
+    var pct = Math.min(100, Math.round(today / goal * 100));
+    return '<div class="row"><span class="k">日更目标</span><span class="v" style="display:flex;gap:8px;align-items:center">' +
+      '<input id="goalInput" type="number" value="' + goal + '" style="width:5em">' +
+      '<div class="goalbar"><div style="width:' + pct + '%"></div></div>' +
+      '<span class="muted">' + today + '/' + goal + '（' + pct + '%）</span></span></div>';
+  }
 
   /* 今日新增字数：progress 接口（门禁/体检跑过才有记账）。 */
   function todayWords() {
@@ -242,17 +290,21 @@ var BUILD = '3.5.8';
             (!it.done && it.hint ? ' <span class="muted">' + esc(it.hint) + '</span>' : '') + '</span></div>';
         }).join('') + '</div>';
     }
-    return setupCard + '<div class="card"><h3>书稿</h3>' + rows([
+    var shelf = '<div class="card"><h3>书架</h3>' + ((S.wsList || []).filter(function (w) { return w.hasNovel; }).map(function (w) {
+      return '<button type="button" class="wsbtn' + (w.path === S.ws ? ' cur' : '') + '" data-ws="' + esc(w.path) + '">' +
+        esc(w.name || w.path) + '<span class="pill good">当前</span></button>';
+    }).join('') || '<div class="muted">（无）</div>') + '</div>';
+    return setupCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
       ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
     ]) + '</div>' +
     '<div class="card"><h3>统计</h3>' + rows([
       ['章节', ch.length + ' 章'], ['总字数', words + ' 字'], ['状态分布', dist],
-      ['今日新增', todayWords()],
+      ['今日新增', todayWords()], ['本周新增', weekWords()], ['连续更新', streakDays() + ' 天'],
       ['角色', (d.characters || []).length], ['伏笔', (d.foreshadows || []).length],
       ['关系', (d.relations || []).length], ['时间线', (d.timeline || []).length],
       ['设定', (d.world || []).length], ['线索', (d.clues || []).length], ['记忆', (d.memories || []).length]
-    ]) + '</div>' + gate +
+    ]) + goalHtml() + '</div>' + gate +
     ((d.warnings || []).length ? '<div class="card"><h3>体检提示 <span class="badge">' + d.warnings.length + '</span></h3>' +
       d.warnings.map(function (w) {
         return '<div class="row"><span class="v">' + esc(typeof w === 'string' ? w : (w && w.message) || JSON.stringify(w)) + '</span></div>';
@@ -340,6 +392,44 @@ var BUILD = '3.5.8';
     });
   }
 
+  /* ── 待办工作台：体检警告 + 门禁不及格 + 伏笔悬空 汇总 ── */
+  function todoKey(s) { return String(s).slice(0, 60); }
+  function vTodo() {
+    if (!S.check) get('check', wsQuery()).then(function (d) { S.check = d; render(); }).catch(function () { S.check = { ok:true, problems:[] }; });
+    var rows = [];
+    (S.gates && S.gates.gates ? Object.keys(S.gates.gates) : []).forEach(function (f) {
+      var g = S.gates.gates[f];
+      if (g && g.ok && g.human < S.gates.passMark) rows.push({ t: '门禁', txt: f + ' 人味 ' + g.human + '（及格线 ' + S.gates.passMark + '）', act: 'open:' + f });
+    });
+    ((S.check && S.check.problems) || []).forEach(function (p) {
+      rows.push({ t: p.level === 'error' ? '错误' : '警告', txt: (p.file ? p.file + '：' : '') + (p.message || ''), act: '' });
+    });
+    var html = rows.map(function (r) {
+      var k = todoKey(r.t + r.txt);
+      var done = S.todoDone[k];
+      return '<div class="todorow"' + (done ? ' style="opacity:.45"' : '') + '>' +
+        '<input type="checkbox" class="todoChk" data-k="' + esc(k) + '"' + (done ? ' checked' : '') + '>' +
+        '<span class="pill ' + (r.t === '错误' || r.t === '门禁' ? 'bad' : 'mid') + '">' + r.t + '</span>' +
+        '<span class="v">' + esc(r.txt) + '</span>' +
+        (r.act.indexOf('open:') === 0 ? ' <button type="button" class="sm todoOpen" data-file="' + esc(r.act.slice(5)) + '">去处理</button>' : '') +
+        '</div>';
+    }).join('');
+    return '<div class="card"><h3>待办 <span class="badge">' + rows.length + ' 项 · 勾选即记已处理</span></h3>' +
+      (html || '<div class="muted ok">没有待办 ✓</div>') + '</div>';
+  }
+  function bindTodo() {
+    Array.prototype.forEach.call(document.querySelectorAll('.todoChk'), function (c) {
+      c.addEventListener('change', function () {
+        S.todoDone[c.getAttribute('data-k')] = c.checked;
+        try { localStorage.setItem('xiaoyu.todoDone', JSON.stringify(S.todoDone)); } catch (e) {}
+        render();
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.todoOpen'), function (b) {
+      b.addEventListener('click', function () { openChapter(b.getAttribute('data-file')); });
+    });
+  }
+
   /* ── 体检 ── */
   function ensureAudit() {
     if (S.audit || S.auditBusy) return;
@@ -357,7 +447,8 @@ var BUILD = '3.5.8';
         (ps.length ? ps.map(function (p) {
           var col = p.level === 'error' ? 'bad' : (p.level === 'warn' ? 'mid' : '');
           return '<div class="row"><span class="k"><span class="pill ' + col + '">' + esc(p.level || '?') + '</span></span>' +
-            '<span class="v">' + esc((p.file ? p.file + '：' : '') + (p.message || '')) + '</span></div>';
+            '<span class="v">' + esc((p.file ? p.file + '：' : '') + (p.message || '')) +
+            ' <input type="checkbox" class="todoChk" data-k="' + esc(todoKey('警告' + (p.file || '') + (p.message || ''))) + '"' + (S.todoDone[todoKey('警告' + (p.file || '') + (p.message || ''))] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
     out += '<div class="card"><h3>全书体检' + (S.auditBusy ? '<span class="badge">计算中…</span>' : '') + '</h3>' +
@@ -505,7 +596,7 @@ var BUILD = '3.5.8';
     if (r) {
       out += '<div class="muted">' + (r.matches || []).length + ' 处命中 · ' + esc(r.files || 0) + ' 个文件' + (r.truncated ? ' · 超出上限已截断' : '') + '</div>';
       out += (r.matches || []).map(function (m) {
-        return '<button type="button" class="chap" data-file="' + esc(m.file) + '">' +
+        return '<button type="button" class="chap" data-file="' + esc(m.file) + '" data-line="' + esc(m.line) + '">' +
           '<span class="no">' + esc(m.kind === 'outline' ? '章纲' : '正文') + '</span>' +
           '<span class="ti">' + esc(m.file) + '<span class="pill">L' + esc(m.line) + '</span>' +
           '<div class="muted">' + esc(m.text) + '</div></span></button>';
@@ -587,10 +678,28 @@ var BUILD = '3.5.8';
       }).catch(function (err) { note('保存失败：' + ((err && err.message) || err)); });
     });
   }
+  /* 角色出场热力：来自全书体检的 cast 数据（提及次数 + 最后出场章）。 */
+  function vCastHeat() {
+    var cast = (S.audit && S.audit.cast) || null;
+    if (!cast) return '<div class="card"><h3>出场热力</h3><div class="muted">体检计算中…（稍后重进本页）</div></div>';
+    var sorted = cast.slice().sort(function (a, b) { return (b.mentions || 0) - (a.mentions || 0); });
+    var max = Math.max(1, sorted[0] && sorted[0].mentions || 1);
+    var total = (S.data && S.data.chapters || []).length;
+    return '<div class="card"><h3>出场热力 <span class="badge">条=提及次数 · 末次出场</span></h3>' + sorted.map(function (c) {
+      var w = Math.round((c.mentions || 0) / max * 70);
+      var lastC = chapNum(c.lastChapter);
+      var cold = lastC != null && total - lastC > 15;
+      return '<div class="heatrow"><span style="flex:0 0 7em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">' + esc(c.name || c.file) + '</span>' +
+        '<div class="heatbar" style="flex:0 0 ' + Math.max(2, w) + '%;background:' + (cold ? '#8a5a5a' : '#4b8bf5') + '"></div>' +
+        '<span class="muted" style="font-size:11.5px">' + (c.mentions || 0) + ' 次' + (c.lastChapter ? ' · 末次 ' + esc(c.lastChapter) : '') + (cold ? ' ⚠消失' + (total - lastC) + '章' : '') + '</span></div>';
+    }).join('') + '</div>';
+  }
+
   function vCharacters(d) {
     var list = d.characters || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有角色卡</div></div>';
-    return list.map(function (c) {
+    ensureAudit();
+    return vCastHeat() + list.map(function (c) {
       return '<div class="card"><h3>' + esc(c.name || c.file) +
         (c.role ? '<span class="pill">' + esc(c.role) + '</span>' : '') +
         (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') +
@@ -616,7 +725,7 @@ var BUILD = '3.5.8';
   function vForeshadows(d) {
     var list = d.foreshadows || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有伏笔</div></div>';
-    return '<div class="card"><h3>伏笔 ' + list.length + ' 条</h3>' + list.map(function (f, i) {
+    return vForeLanes(list) + '<div class="card"><h3>伏笔 ' + list.length + ' 条</h3>' + list.map(function (f, i) {
       var opts = Object.keys(FORE_LABEL).map(function (k) {
         return '<option value="' + k + '"' + (f.status === k ? ' selected' : '') + '>' + FORE_LABEL[k] + '</option>';
       }).join('');
@@ -631,6 +740,32 @@ var BUILD = '3.5.8';
         '</span></div>';
     }).join('') + '</div>';
   }
+  /* 伏笔泳道：埋设 → 期望回收 的跨章视图，悬空一眼可见。 */
+  function chapNum(ref) {
+    var m = /[cv](\d+)[^\d]*$/i.exec(String(ref || '')) || /(\d+)$/.exec(String(ref || ''));
+    if (!m) return null;
+    var n = Number(m[1]);
+    return n > 200 ? n - 1000 : n; /* v02-c1074 风格归一到全局章号近似值 */
+  }
+  function vForeLanes(list) {
+    var total = Math.max(1, (S.data && S.data.chapters || []).length);
+    var last = total;
+    var rows = list.map(function (f) {
+      var s = chapNum(f.planted_chapter);
+      var e = chapNum(f.expected_resolve || f.resolved_chapter);
+      var resolved = f.status === 'resolved';
+      var left = s == null ? 0 : Math.max(0, Math.min(100, s / last * 100));
+      var width = (e != null ? Math.max(2, (Math.min(e, last) - (s || 0)) / last * 100) : (resolved ? 2 : Math.max(2, (last - (s || 0)) / last * 100)));
+      var warn = !resolved && s != null && (last - s) > 30;
+      return '<div class="lane" title="' + esc(f.title || f.content || '') + '">' +
+        '<div class="lanebar" style="left:' + left + '%;width:' + width + '%;background:' + (resolved ? '#3fbf7f' : (warn ? '#ef5b5b' : '#4b8bf5')) + '"></div>' +
+        '<div class="lanedot" style="left:calc(' + left + '% - 7px)"></div>' +
+        '<span style="position:absolute;left:2px;top:3px;font-size:11px;color:#8d939c">' + esc((f.id || '') + ' ' + String(f.title || f.content || '').slice(0, 12)) + (warn ? ' ⚠悬空' + (last - s) + '章' : '') + '</span>' +
+        '</div>';
+    }).join('');
+    return '<div class="card"><h3>伏笔泳道 <span class="badge">红=悬空超30章 绿=已回收</span></h3>' + rows + '</div>';
+  }
+
   function bindFore() {
     Array.prototype.forEach.call(document.querySelectorAll('.foreApply'), function (b) {
       b.addEventListener('click', function () {
@@ -940,6 +1075,19 @@ var BUILD = '3.5.8';
           esc((l.count || 0) + ' 条 · ' + Math.round((l.bytes || 0) / 1024) + 'KB' + (l.oversize ? ' · 超长 ' + l.oversize + ' 条' : '')) + '</span></div>';
       }).join('') + '</div>';
     }
+    out += '<div class="card"><h3>AI 助手（复制指令 → 粘贴到 DSH 对话）</h3>' +
+      '<div class="btnrow"><input id="aiChap" placeholder="章节文件名（AI改稿用，如 v01-c047.md）" style="flex:1 1 14em;min-width:0">' +
+      '<button type="button" id="aiGate2" class="sm">生成改稿指令</button>' +
+      '<button type="button" id="aiDraft" class="sm">生成写稿指令（章纲→正文）</button></div>' +
+      '<div class="btnrow"><input id="aiNameKw" placeholder="起名关键词（如 反派 二把手 中年）" style="flex:1 1 14em;min-width:0">' +
+      '<input id="aiNameType" placeholder="类型（角色/地名/组织）" style="flex:1 1 8em;min-width:0">' +
+      '<button type="button" id="aiName" class="sm">生成起名指令</button></div>' +
+      '<div class="muted">面板不能直接跑 AI：这里把打包好的指令复制给你，切到 DSH 对话粘贴发送即可。</div></div>';
+    out += '<div class="card"><h3>导出中心</h3><div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      ['md','txt','epub','docx'].map(function (f) {
+        return '<a class="sm" style="display:inline-block;padding:5px 10px;border:1px solid #3d424a;border-radius:8px;text-decoration:none" href="' + API + 'export-book?path=' + encodeURIComponent(S.ws) + '&format=' + f + '">整本 ' + f.toUpperCase() + '</a>';
+      }).join('') + '</div>' +
+      '<div class="muted" style="margin-top:6px">平台通用格式：TXT（番茄/七猫直传）· DOCX（起点后台）· EPUB（留存）</div></div>';
     out += '<div class="card"><h3>章节交接卡</h3>' +
       '<input id="hoFile" placeholder="章节文件名（如 v01-c047.md）" style="width:100%">' +
       '<div class="btnrow"><button type="button" id="btnHandoff" class="sm">生成交接卡（写下一章的前提全在这）</button></div>';
@@ -1010,6 +1158,32 @@ var BUILD = '3.5.8';
         note('归档完成'); S.slim = null; S.trash = null; render(); loadState();
       }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
     });
+    var ag2 = $('aiGate2');
+    if (ag2) ag2.addEventListener('click', function () {
+      var f = (($('aiChap') || {}).value || '').trim();
+      if (!f) { note('先填章节文件名'); return; }
+      get('chapter', { path: S.ws, file: f }).then(function (d) {
+        var prompt = '请按小鱼去AI味十二式改稿：' + f + '\n正文：\n' + String((d && d.body) || '').slice(0, 6000);
+        return copy(prompt);
+      }).then(function (ok) { note(ok ? '改稿指令已复制' : '复制失败'); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var ad3 = $('aiDraft');
+    if (ad3) ad3.addEventListener('click', function () {
+      var f = (($('aiChap') || {}).value || '').trim();
+      if (!f) { note('先填章节文件名（会自动找同章章纲）'); return; }
+      get('chapter', { path: S.ws, file: f }).then(function (d) {
+        var o = (d && d.outline && d.outline.body) || '';
+        var prompt = '请按以下章纲写本章正文初稿（保持既有文风与人设，3000-4000字，章末留钩子）：\n' + String(o).slice(0, 4000);
+        return copy(prompt);
+      }).then(function (ok) { note(ok ? '写稿指令已复制' : '复制失败'); }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
+    var an = $('aiName');
+    if (an) an.addEventListener('click', function () {
+      var kw = (($('aiNameKw') || {}).value || '').trim();
+      var tp = (($('aiNameType') || {}).value || '角色').trim();
+      var prompt = '请按本书命名风格（市井、接地气、有记忆点）生成 10 个' + tp + '名，关键词：' + (kw || '无') + '。只要名字和一句话理由。';
+      copy(prompt).then(function (ok) { note(ok ? '起名指令已复制' : '复制失败'); });
+    });
     var hf = $('btnHandoff');
     if (hf) hf.addEventListener('click', function () {
       var f = (($('hoFile') || {}).value || '').trim();
@@ -1062,7 +1236,19 @@ var BUILD = '3.5.8';
     if (S.git) return;
     get('git-status', wsQuery()).then(function (d) {
       S.git = d;
-      if (d.available && d.isRepo) loadGitLog();
+      if (d.available && d.isRepo) {
+        loadGitLog();
+        /* 打开版本页时自动存档：距上次超过 20 小时才提交一次 */
+        var last = 0;
+        try { last = Number(localStorage.getItem('xiaoyu.lastAutoBak')) || 0; } catch (e) {}
+        if (Date.now() - last > 20 * 3600 * 1000) {
+          postJson('git-commit', { path: S.ws, message: '面板自动存档 ' + new Date().toISOString().slice(0, 16).replace('T', ' ') }).then(function () {
+            try { localStorage.setItem('xiaoyu.lastAutoBak', String(Date.now())); } catch (e) {}
+            S.gitLog = null; loadGitLog();
+            note('已自动 git 存档');
+          }).catch(function () {});
+        }
+      }
       render();
     }).catch(function (e) { S.git = { available:false, error: String((e && e.message) || e) }; render(); });
   }
@@ -1161,7 +1347,10 @@ var BUILD = '3.5.8';
       (ed && ed.mode === 'outline'
         ? '<button type="button" id="btnSaveOutline" class="sm pri">保存章纲</button><button type="button" id="btnCancelEd" class="sm">取消编辑</button>'
         : '<button type="button" id="btnEditOutline" class="sm">编辑章纲</button>') +
-      ' 状态 <select id="statusSel" class="sm">' + stOpts + '</select>';
+      ' 状态 <select id="statusSel" class="sm">' + stOpts + '</select>' +
+      '<button type="button" id="btnFontDn" class="sm">A−</button><button type="button" id="btnFontUp" class="sm">A+</button>' +
+      '<button type="button" id="btnDiff" class="sm">与上版对比</button>' +
+      '<button type="button" id="btnAIGate" class="sm pri">AI改稿</button>';
     var gateCard = '';
     if (S.gateOne) {
       var g = S.gateOne;
@@ -1209,15 +1398,62 @@ var BUILD = '3.5.8';
     if (ed && ed.mode === 'body') {
       bodyBlock = '<div class="card"><h3>正文（编辑中）</h3><textarea id="bodyEdit" class="editor">' + esc(ed.text) + '</textarea></div>';
     } else {
-      bodyBlock = '<div class="card"><h3>正文</h3><div class="body" id="bodyText">' + esc(r.body || '（本章正文为空）') + '</div></div>';
+      var lines = String(r.body || '').split('\n');
+      bodyBlock = '<div class="card"><h3>正文</h3><div class="body" id="bodyText" style="font-size:' + Math.round(15 * S.fontScale) + 'px">' +
+        lines.map(function (ln, i) { return '<div class="ln' + (S.hlLine === i + 1 ? ' hl' : '') + '" id="ln-' + (i + 1) + '">' + (esc(ln) || '&nbsp;') + '</div>'; }).join('') +
+        '</div></div>';
     }
-    return '<div class="card"><h3>' + esc(r.title || r.file) + '<span class="badge">' + words + ' 字</span></h3>' +
+    return (S.diff || '') + '<div class="card"><h3>' + esc(r.title || r.file) + '<span class="badge">' + words + ' 字</span></h3>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + editBtns + '</div></div>' +
       gateCard + castCard + outlineBlock + bodyBlock;
   }
+  function lineDiff(oldT, newT) {
+    var a = String(oldT || '').split('\n'), b = String(newT || '').split('\n');
+    var i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+    var j = 0; while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j += 1;
+    return { del: a.slice(i, a.length - j), add: b.slice(i, b.length - j) };
+  }
   function bindReader() {
     var back = $('btnBack'), prev = $('btnPrev'), next = $('btnNext'), cp = $('btnCopy');
-    if (back) back.addEventListener('click', function () { S.reader = null; S.gateOne = null; S.ed = null; render(); });
+    var fd = $('btnFontDn'), fu = $('btnFontUp'), df = $('btnDiff'), ag = $('btnAIGate');
+    if (fd) fd.addEventListener('click', function () { S.fontScale = Math.max(0.8, S.fontScale - 0.1); try { localStorage.setItem('xiaoyu.fontScale', String(S.fontScale)); } catch (e) {} render(); });
+    if (fu) fu.addEventListener('click', function () { S.fontScale = Math.min(1.8, S.fontScale + 0.1); try { localStorage.setItem('xiaoyu.fontScale', String(S.fontScale)); } catch (e) {} render(); });
+    if (df) df.addEventListener('click', function () {
+      note('取上一版快照…');
+      get('versions', { path: S.ws, file: S.reader.file }).then(function (v) {
+        var list = (v && v.versions) || [];
+        if (!list.length) { note('这一章还没有历史快照'); return; }
+        var top = list[0];
+        var id = top.id || top.rev || top.hash || top.at;
+        return get('version', { path: S.ws, file: S.reader.file, id: id });
+      }).then(function (old) {
+        if (!old) return;
+        var oldBody = old.body || old.text || '';
+        var d = lineDiff(oldBody, S.reader.body || '');
+        S.diff = '<div class="card"><h3>与上一版对比 <span class="badge">红=删 绿=增</span><button type="button" id="diffClose" class="sm" style="margin-left:auto">关闭</button></h3>' +
+          (d.del.length === 0 && d.add.length === 0 ? '<div class="muted ok">与上一版完全一致</div>' :
+            d.del.map(function (l) { return '<span class="diffdel">− ' + esc(l.slice(0, 160)) + '</span>'; }).join('') +
+            d.add.map(function (l) { return '<span class="diffadd">+ ' + esc(l.slice(0, 160)) + '</span>'; }).join('')) +
+          '</div>';
+        render();
+        window.scrollTo(0, 0);
+      }).catch(function (e) { note('对比失败：' + ((e && e.message) || e)); });
+    });
+    if (ag) ag.addEventListener('click', function () {
+      var g = S.gateOne;
+      var flags = (g && g.flags || []).map(function (f, i) { return (i + 1) + '. ' + String(f.text || '').slice(0, 120); }).join('\n');
+      var prompt = '请按小鱼去AI味十二式，对《' + (S.reader.title || '') + '》做改稿手术。\n当前门禁分：' + (g && g.human != null ? g.human : '?') + '（及格线 ' + (g && g.passMark != null ? g.passMark : 60) + '）。\n重点嫌疑句：\n' + (flags || '（无）') + '\n\n正文：\n' + String(S.reader.body || '').slice(0, 6000);
+      copy(prompt).then(function (ok) {
+        note(ok ? '改稿指令已复制，粘贴到 DSH 对话发给小鱼即可' : '复制失败，请手动选择正文');
+      });
+    });
+    if (!window._posBound) {
+      window._posBound = true;
+      window.addEventListener('scroll', function () {
+        if (S.reader && !S.reader.loading) S.readerPos[S.reader.file] = window.scrollY;
+      });
+    }
+    if (back) back.addEventListener('click', function () { S.reader = null; S.gateOne = null; S.ed = null; S.diff = null; render(); });
     if (prev) prev.addEventListener('click', function () {
       var i = indexOfFile(S.reader && S.reader.file);
       if (i > 0) openChapter(chapterList()[i - 1].file); else note('已经是第一章');
@@ -1270,6 +1506,8 @@ var BUILD = '3.5.8';
         loadState();
       }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
     });
+    var dc2 = $('diffClose');
+    if (dc2) dc2.addEventListener('click', function () { S.diff = null; render(); });
     var gu = $('btnGateUndo');
     if (gu) gu.addEventListener('click', function () {
       if (!confirmAct('撤销最近一次自动修，正文恢复到修改前？')) return;
@@ -1327,8 +1565,10 @@ var BUILD = '3.5.8';
     for (var i = 0; i < list.length; i++) if (list[i].file === file) return i;
     return -1;
   }
-  function openChapter(file) {
+  function openChapter(file, line) {
     if (!file) return;
+    S.diff = null;
+    S.hlLine = Number(line) || 0;
     if (indexOfFile(file) < 0) { note('这一条不是章节正文（可能是章纲），只能在章节列表打开'); return; }
     var idx = indexOfFile(file);
     var meta = idx >= 0 ? chapterList()[idx] : null;
@@ -1344,6 +1584,9 @@ var BUILD = '3.5.8';
       S.err = ''; render();
       loadGateOne(file);
       loadCast(file);
+      var hl = $('ln-' + S.hlLine);
+      if (hl) { hl.scrollIntoView({ block: 'center' }); }
+      else if (S.readerPos[file]) { window.scrollTo(0, S.readerPos[file]); }
     }).catch(function (e) {
       if (S.reader) { S.reader.loading = false; S.reader.err = String((e && e.message) || e); }
       render();
@@ -1372,7 +1615,7 @@ var BUILD = '3.5.8';
       card.setAttribute('data-dec', '1');
       var body = document.createElement('div');
       body.className = 'cbody';
-      if (S.tab === 'characters') body.style.maxHeight = '34vh';
+      if (S.tab === 'characters' || S.tab === 'world') body.style.maxHeight = '34vh';
       var nodes = [];
       for (var n = h.nextSibling; n; n = n.nextSibling) nodes.push(n);
       nodes.forEach(function (nd) { body.appendChild(nd); });
@@ -1412,7 +1655,7 @@ var BUILD = '3.5.8';
     if (S.genEd) { v.innerHTML = vGenEd(); decorateCards(); bindGenEd(); return; }
     if (S.reader) { v.innerHTML = vReader(); decorateCards(); bindReader(); return; }
     var fns = { overview: vOverview, chapters: vChapters, gate: vGate, audit: vAudit,
-                characters: vCharacters, foreshadows: vForeshadows, relations: vRelations,
+                characters: vCharacters, foreshadows: vForeshadows, relations: vRelations, todo: vTodo,
                 timeline: vTimeline, world: vWorld, index: vIndex, style: vStyle,
                 project: vProject, search: vSearch, tools: vTools, history: vHistory };
     v.innerHTML = (fns[S.tab] || vOverview)(S.data);
@@ -1421,7 +1664,8 @@ var BUILD = '3.5.8';
     if (S.tab === 'relations') { drawGraph(); bindRelMaint(); }
     if (S.tab === 'search') bindSearch();
     if (S.tab === 'gate') bindGate();
-    if (S.tab === 'audit') bindAudit();
+    if (S.tab === 'audit') { bindAudit(); bindTodo(); }
+    if (S.tab === 'todo') bindTodo();
     if (S.tab === 'foreshadows') bindFore();
     if (S.tab === 'style') bindStyle();
     if (S.tab === 'project') bindProj();
@@ -1440,10 +1684,25 @@ var BUILD = '3.5.8';
 
   function bindChapters() {
     Array.prototype.forEach.call(document.querySelectorAll('.chap'), function (b) {
-      b.addEventListener('click', function () { openChapter(b.getAttribute('data-file')); });
+      b.addEventListener('click', function () { openChapter(b.getAttribute('data-file'), Number(b.getAttribute('data-line')) || 0); });
     });
     Array.prototype.forEach.call(document.querySelectorAll('.editcard'), function (b) {
       b.addEventListener('click', function () { cardEditor(b.getAttribute('data-title'), b.getAttribute('data-rel')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.wsbtn'), function (b) {
+      b.addEventListener('click', function () {
+        var p = b.getAttribute('data-ws');
+        if (!p || p === S.ws) return;
+        S.ws = p;
+        try { localStorage.setItem('xiaoyu.ws.panel', p); } catch (e) {}
+        var sel = $('ws'); if (sel) sel.value = p;
+        loadState();
+      });
+    });
+    var gi = $('goalInput');
+    if (gi) gi.addEventListener('change', function () {
+      try { localStorage.setItem('xiaoyu.dailyGoal', String(Number(gi.value) || 4000)); } catch (e) {}
+      render();
     });
   }
 
@@ -1527,6 +1786,18 @@ var BUILD = '3.5.8';
       else if (d && d.error) upmsg('检测失败：' + d.error);
       else upmsg('已是最新（v' + ((d && d.current) || '?') + ' · ' + new Date().toLocaleTimeString() + '）');
     }).catch(function (e) { upmsg('检测失败：' + ((e && e.message) || e)); });
+  });
+  function applyTheme(light) {
+    document.body.className = light ? 'light' : '';
+    try { localStorage.setItem('xiaoyu.theme', light ? 'light' : 'dark'); } catch (e) {}
+  }
+  var savedTheme = '';
+  try { savedTheme = localStorage.getItem('xiaoyu.theme') || ''; } catch (e) {}
+  if (savedTheme === 'light') applyTheme(true);
+  try { S.fontScale = Number(localStorage.getItem('xiaoyu.fontScale')) || 1; } catch (e) {}
+  try { S.todoDone = JSON.parse(localStorage.getItem('xiaoyu.todoDone') || '{}') || {}; } catch (e) {}
+  $('btnTheme').addEventListener('click', function () {
+    applyTheme(document.body.className !== 'light');
   });
   $('btnDiag').addEventListener('click', function () {
     var payload = { tag: 'standalone-panel', build: BUILD, shellBranch: 'standalone',
