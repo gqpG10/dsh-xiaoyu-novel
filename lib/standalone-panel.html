@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.12.4';
+var BUILD = '3.12.5';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1072,6 +1072,9 @@ var BUILD = '3.12.4';
       G = S._graph = { sig: sig, nodes: nodes, edges: order.map(function (k) { return pairMap[k]; }), alpha: 1, view: { x: 320, y: 300, scale: 0.9 }, sel: -1, needFit: true };
     }
     G.sel = S.graphSel;
+    /* 3.12.5：进关系页强制适配一次——tab 切换后画布尺寸可能变了，
+       旧视图会把图甩出画面（黑屏看不到图，点「适应画布」才出现）。 */
+    G.needFit = true;
 
     /* 画布逻辑尺寸跟随 CSS 实际显示尺寸（3.12.2）：手机竖屏窄、桌面宽，
        固定 640×520 在窄屏上把圆压成椭圆。每帧量容器，纵横比一变就同步
@@ -1191,19 +1194,27 @@ var BUILD = '3.12.4';
 
     function frame() {
       if (!cv.isConnected) return;
+      /* 3.12.5 异常防护：单帧抛错只丢这一帧，动画链不断——否则一帧炸了
+         rAF 永停，图直接黑屏，只能反复重渲染碰运气。 */
+      try { drawFrame(); } catch (err) { try { console.warn("[xiaoyu] graph frame:", err); } catch (e2) {} }
+      cv._raf = requestAnimationFrame(frame);
+    }
+    function drawFrame() {
       var pw = W, ph = H;
       syncSize();
       if (W !== pw || H !== ph) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         G.needFit = true;
       }
-      /* 布局稳定 600ms 后 alpha 彻底归零（3.12.4）：任何慢漂移
-         （浮点累积/向心力不对称）在稳定期后一律停力。交互会重热 alpha。 */
-      if (G.alpha < 0.004 && !G.needFit) {
-        if (G._steady == null) G._steady = Date.now();
-        if (Date.now() - G._steady > 600) G.alpha = 0;
-      } else { G._steady = null; }
-      tick();
+      /* 3.12.5 终极停帧：稳定 600ms 后 alpha=0 且完全跳过物理 tick（只画
+         不力），漂移在任何来源下都不可能持续；交互把 alpha 抬回 >0 即恢复。 */
+      if (G.alpha > 0) {
+        if (G.alpha < 0.004 && !G.needFit) {
+          if (G._steady == null) G._steady = Date.now();
+          if (Date.now() - G._steady > 600) { G.alpha = 0; G.nodes.forEach(function (n) { if (n.fx == null) { n.vx = 0; n.vy = 0; } }); }
+        } else { G._steady = null; }
+        tick();
+      }
       if (G.needFit) fitView();
       ctx.fillStyle = '#171b22';
       ctx.fillRect(0, 0, W, H);
@@ -1339,7 +1350,6 @@ var BUILD = '3.12.4';
           ctx.fillText('…还有 ' + (selRels.length - 8) + ' 条，看下方列表', bx + 12, by + 74 + 8 * 26);
         }
       }
-      cv._raf = requestAnimationFrame(frame);
     }
 
     /* ── 交互（pointer 统一：拖节点 / 平移 / 双指缩放 / 点击选中） ── */
