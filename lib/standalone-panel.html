@@ -106,7 +106,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.12.3';
+var BUILD = '3.12.4';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1118,7 +1118,12 @@ var BUILD = '3.12.3';
     /* 力模拟一步（d3-force 简化版：斥力 + 弹簧 + 向心 + 碰撞） */
     function tick() {
       var a = G.alpha;
-      if (a < 0.004) return;
+      if (a < 0.004) {
+        /* 冷却冻结（3.12.4）：清速度杜绝残余惯性——不清会有数值残压，
+           表现为整图单向慢漂。冻结帧速度归零，绝对静止。 */
+        G.nodes.forEach(function (n) { if (n.fx == null) { n.vx = 0; n.vy = 0; } });
+        return;
+      }
       var ns = G.nodes;
       for (var i = 0; i < ns.length; i++) {
         for (var j = i + 1; j < ns.length; j++) {
@@ -1192,6 +1197,12 @@ var BUILD = '3.12.3';
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         G.needFit = true;
       }
+      /* 布局稳定 600ms 后 alpha 彻底归零（3.12.4）：任何慢漂移
+         （浮点累积/向心力不对称）在稳定期后一律停力。交互会重热 alpha。 */
+      if (G.alpha < 0.004 && !G.needFit) {
+        if (G._steady == null) G._steady = Date.now();
+        if (Date.now() - G._steady > 600) G.alpha = 0;
+      } else { G._steady = null; }
       tick();
       if (G.needFit) fitView();
       ctx.fillStyle = '#171b22';
@@ -1308,24 +1319,24 @@ var BUILD = '3.12.3';
       if (G.sel >= 0 && names[G.sel]) {
         var selN = names[G.sel];
         var selRels = list.filter(function (r) { return r.a === selN || r.b === selN; });
-        var bx = W - 196, by = 70, bw2 = 178, bh2 = 44 + Math.min(7, selRels.length) * 22 + 16;
+        var bx = W - 200, by = 64, bw2 = 192, bh2 = 52 + Math.min(8, selRels.length) * 26 + 20;
         ctx.fillStyle = 'rgba(20,26,38,0.93)';
         ctx.strokeStyle = tier(selN).c; ctx.lineWidth = 1.5;
         ctx.beginPath();
         if (ctx.roundRect) { ctx.roundRect(bx, by, bw2, bh2, 12); } else { ctx.rect(bx, by, bw2, bh2); }
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#e8ecf3'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
-        ctx.fillText(selN, bx + 12, by + 22);
+        ctx.fillText(selN, bx + 12, by + 26);
         ctx.fillStyle = tier(selN).c; ctx.font = '11px sans-serif';
-        ctx.fillText(tier(selN).t + ' · 权重 ' + (score[selN] || 0) + ' · ' + selRels.length + ' 条', bx + 12, by + 40);
-        selRels.slice(0, 7).forEach(function (r, i) {
+        ctx.fillText(tier(selN).t + ' · 权重 ' + (score[selN] || 0) + ' · ' + selRels.length + ' 条关系', bx + 12, by + 48);
+        selRels.slice(0, 8).forEach(function (r, i) {
           var other = r.a === selN ? r.b : r.a;
-          ctx.fillStyle = '#c9d2df'; ctx.font = '11px sans-serif';
-          ctx.fillText('· ' + other + '（' + (r.type || '?') + ' ' + (r.intensity || 1) + '）', bx + 12, by + 60 + i * 22);
+          ctx.fillStyle = '#c9d2df'; ctx.font = '12px sans-serif';
+          ctx.fillText('· ' + other + '（' + (r.type || '?') + ' 强' + (r.intensity || 1) + '）', bx + 12, by + 74 + i * 26);
         });
-        if (selRels.length > 7) {
-          ctx.fillStyle = '#8d939c'; ctx.font = '11px sans-serif';
-          ctx.fillText('…还有 ' + (selRels.length - 7) + ' 条', bx + 12, by + 60 + 7 * 22);
+        if (selRels.length > 8) {
+          ctx.fillStyle = '#8d939c'; ctx.font = '12px sans-serif';
+          ctx.fillText('…还有 ' + (selRels.length - 8) + ' 条，看下方列表', bx + 12, by + 74 + 8 * 26);
         }
       }
       cv._raf = requestAnimationFrame(frame);
@@ -1382,7 +1393,10 @@ var BUILD = '3.12.3';
           var n = G.nodes[drag.i];
           n.fx = null; n.fy = null;
           G.alpha = Math.max(G.alpha, 0.3);
-          if (moved < 6) { S.graphSel = (S.graphSel === drag.i ? -1 : drag.i); G.sel = S.graphSel; render(); }
+          /* 点击选中（3.12.4）：不再 render()——重建 DOM 会打断 rAF 动画链，
+             旧 canvas 收不到 pointerup、事件半途丢失；选中态只改 G.sel
+             （画布内高亮/详情卡当帧就换），S.graphSel 存着，下次 drawGraph 继承。 */
+          if (moved < 6) { S.graphSel = (S.graphSel === drag.i ? -1 : drag.i); G.sel = S.graphSel; }
           drag = null;
         } else if (pan != null) {
           pan = null;
