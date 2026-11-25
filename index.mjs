@@ -2742,6 +2742,30 @@ function styleRegisterGroup(register) {
           return
         }
 
+        if (route === 'cast-matrix' && req.method === 'GET') {
+          // 3.16.0 角色出席矩阵（借鉴 StoryGraphs 的人物×时序网格）：
+          // 一次算全书各章出场角色，带 chapterCast 的 mtime 缓存，二次请求秒回。
+          try {
+            const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+            const snap = parseStateSnapshot(novelDir, { lite: true })
+            const files = (snap.chapters || []).map((c) => c.file)
+            const names = (snap.characters || []).map((c) => String(c.name || '').trim()).filter(Boolean)
+            const cells = {}
+            for (const name of names) cells[name] = []
+            const fileIdx = {}
+            files.forEach((f, i) => { fileIdx[f] = i })
+            for (const file of files) {
+              const cast = chapterCast(novelDir, file)
+              for (const name of names) cells[name].push(cast.names.indexOf(name) >= 0)
+            }
+            json(res, 200, { ok: true, files, names, cells })
+          } catch (error) {
+            const status = error && error.status ? error.status : 500
+            json(res, status, { ok: false, error: sanitizeWithRoots(String(error && error.message ? error.message : error)) })
+          }
+          return
+        }
+
         if (route === 'ledger-stats' && req.method === 'GET') {
           // 账本体检（0.15.0）：每本账体积/条数/超长条数/最长几条预览。
           // 口径与 checkProject 的账本膨胀 warn 一致，面板概览页据此出卡。

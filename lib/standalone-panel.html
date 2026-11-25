@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.15.5';
+var BUILD = '3.16.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -138,7 +138,7 @@ var BUILD = '3.15.5';
             proj:null,
             trash:null, ledger:null, slim:null,
             git:null, gitLog:null, versionsFile:'', versions:null,
-            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -232,6 +232,23 @@ var BUILD = '3.15.5';
       if (d1 - d0 === 86400000) n += 1; else break;
     }
     return n;
+  }
+  /* 3.16.0 近 7 日日均与单日最佳（借鉴 open-wrimo 的统计指标）。 */
+  function dailyAvg7() {
+    var days = (S.progress && S.progress.days) || [];
+    if (days.length < 2) return '';
+    var recent = days.slice(-8, -1);
+    if (!recent.length) return '';
+    var sum = recent.reduce(function (a, d) { return a + Number(d.words || 0); }, 0);
+    return Math.round(sum / recent.length) + ' 字/天';
+  }
+  function bestDay() {
+    var days = (S.progress && S.progress.days) || [];
+    var best = null;
+    days.forEach(function (d) {
+      if (d.words > 0 && (!best || d.words > best.words)) best = d;
+    });
+    return best ? best.words + ' 字（' + best.date + '）' : '';
   }
   function gateAvg() {
     if (!S.gates || !S.gates) return '';
@@ -381,6 +398,7 @@ var BUILD = '3.15.5';
     '<div class="card"><h3>统计</h3>' + rows([
       ['章节', ch.length + ' 章'], ['总字数', words + ' 字'], ['状态分布', dist],
       ['今日新增', todayWords()], ['本周新增', weekWords()], ['连续更新', streakDays() + ' 天'],
+      ['近7日日均', dailyAvg7()], ['单日最佳', bestDay()],
       ['角色', (d.characters || []).length], ['伏笔', (d.foreshadows || []).length],
       ['关系', (d.relations || []).length], ['时间线', (d.timeline || []).length],
       ['设定', (d.world || []).length], ['线索', (d.clues || []).length], ['记忆', (d.memories || []).length]
@@ -887,6 +905,38 @@ var BUILD = '3.15.5';
       }).catch(function (err) { note('保存失败：' + ((err && err.message) || err)); });
     });
   }
+  /* 3.16.0 角色出席矩阵（借鉴 StoryGraphs 的人物×时序网格）：
+     行=角色、列=章节、格子=是否出场；一眼看出谁的戏份断档。 */
+  function vCastMatrix() {
+    var m = S.matrix;
+    if (!m) return '<div class="card"><h3>出席矩阵</h3><div class="muted">加载中…（全书逐章扫描，首次稍慢）</div></div>';
+    if (m.ok === false) return '';
+    var nCh = (m.files || []).length, names = (m.names || []);
+    if (!nCh || !names.length) return '';
+    var CELL = 12, GAP = 2, LABEL = 88, HEAD = 26;
+    var W = LABEL + nCh * (CELL + GAP), H = HEAD + names.length * (CELL + GAP);
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block">';
+    for (var i = 0; i < nCh; i++) {
+      if (i % 5 === 0) svg += '<text x="' + (LABEL + i * (CELL + GAP) + CELL / 2) + '" y="' + (HEAD - 8) + '" fill="#8d939c" font-size="8" text-anchor="middle">' + (i + 1) + '</text>';
+    }
+    names.forEach(function (nm, r) {
+      var y = HEAD + r * (CELL + GAP);
+      svg += '<text x="' + (LABEL - 4) + '" y="' + (y + CELL - 3) + '" fill="#8d939c" font-size="9" text-anchor="end">' + esc(nm.length > 7 ? nm.slice(0, 6) + '…' : nm) + '</text>';
+      var cells = (m.cells && m.cells[nm]) || [];
+      for (var i = 0; i < nCh; i++) {
+        if (cells[i]) svg += '<rect x="' + (LABEL + i * (CELL + GAP)) + '" y="' + y + '" width="' + CELL + '" height="' + CELL + '" rx="2" fill="#4b8bf5"><title>' + esc(nm) + ' · 第' + (i + 1) + '章</title></rect>';
+      }
+    });
+    svg += '</svg>';
+    return '<div class="card"><h3>出席矩阵 <span class="badge">行=角色 · 列=章（每5章标号）</span></h3>' +
+      '<div style="overflow-x:auto">' + svg + '</div>' +
+      '<div class="muted" style="margin-top:4px">蓝格=该章出场。横看一行的空档=该角色戏份断档；竖看一列=该章群像规模。</div></div>';
+  }
+  function ensureMatrix() {
+    if (S.matrix) return;
+    get('cast-matrix', wsQuery()).then(function (d) { S.matrix = d; if (S.tab === 'characters') render(); }).catch(function () { S.matrix = { ok: false }; });
+  }
+
   /* 角色出场热力：来自全书体检的 cast 数据（提及次数 + 最后出场章）。 */
   function vCastHeat() {
     var cast = (S.audit && S.audit.cast) || null;
@@ -907,8 +957,8 @@ var BUILD = '3.15.5';
   function vCharacters(d) {
     var list = d.characters || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有角色卡</div></div>';
-    ensureAudit();
-    return vCastHeat() + list.map(function (c) {
+    ensureAudit(); ensureMatrix();
+    return vCastMatrix() + vCastHeat() + list.map(function (c) {
       return '<div class="card"><h3>' + esc(c.name || c.file) +
         (c.role ? '<span class="pill">' + esc(c.role) + '</span>' : '') +
         (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') +
@@ -1025,7 +1075,32 @@ var BUILD = '3.15.5';
       '<div style="position:relative">' +
       '<canvas id="relcv" width="640" height="520" data-n="' + names.length + '" style="touch-action:none;width:100%;aspect-ratio:5/4;max-height:78vh;min-height:420px;display:block;border-radius:10px"></canvas></div>' +
       (S.graphSel >= 0 && names[S.graphSel] ? '<div class="muted" style="margin-top:6px">选中：' + esc(names[S.graphSel]) + '</div>' : '') +
-      '</div><div class="card"><h3>关系 ' + list.length + ' 条</h3>' + listHtml + '</div>';
+      '</div>' + castAudit(list, names) + '<div class="card"><h3>关系 ' + list.length + ' 条</h3>' + listHtml + '</div>';
+  }
+  /* 3.16.0 群像结构体检（借鉴 graphify-novel 的 hub 检测思路）：
+     枢纽=度数（关系边数）最高的角色；孤儿=角色卡存在但关系账零边的角色。
+     零依赖：全部由已加载的 relations + characters 前端计算。 */
+  function castAudit(list, relNames) {
+    var deg = {};
+    list.forEach(function (r) {
+      [r.a, r.b].forEach(function (n) { if (n) deg[n] = (deg[n] || 0) + 1; });
+    });
+    var hubs = Object.keys(deg).sort(function (x, y) { return deg[y] - deg[x]; }).slice(0, 5)
+      .map(function (n) { return '<span class="pill">' + esc(n) + ' · ' + deg[n] + ' 边</span>'; }).join(' ');
+    var cast = (S.data && S.data.characters) || [];
+    var orphanNames = [];
+    cast.forEach(function (c) {
+      var slug = String(c.file || '').replace(/\.md$/, '');
+      if (slug && relNames.indexOf(slug) < 0) orphanNames.push(c.name || slug);
+    });
+    var orphanHtml = orphanNames.length
+      ? '<div class="row"><span class="k">孤儿角色</span><span class="v">' + orphanNames.map(esc).join(' · ') + '</span></div>'
+      : '<div class="row"><span class="k">孤儿角色</span><span class="v"><span class="pill good">无</span></span></div>';
+    return '<div class="card"><h3>群像结构体检</h3>' +
+      '<div class="row"><span class="k">枢纽（边数 Top）</span><span class="v">' + (hubs || '（无）') + '</span></div>' +
+      orphanHtml +
+      '<div class="row"><span class="k">密度</span><span class="v">' + (relNames.length ? (list.length / relNames.length).toFixed(1) : '0') + ' 条/人</span></div>' +
+      '<div class="muted" style="margin-top:4px">孤儿=角色卡在建但关系账没边——要么补关系，要么这角色可能根本没戏。</div></div>';
   }
   function drawGraph() {
     var cv = $('relcv'); if (!cv) return;
