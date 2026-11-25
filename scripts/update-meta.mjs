@@ -26,6 +26,7 @@ const RELEASE_BODY = `## 小鱼创作台 v3.25.1
 - 仓库简介统一口径：「六帮手」（原 package.json 误写五帮手）；GitHub 简介去掉过时的「私有」字样。
 - Gitee 简介改写为完整功能说明（不再只是「GitHub 镜像」）。
 - GitHub 补上 topics 标签与主页字段。
+- **致谢补全**：把代码注释里散落的借鉴来源逐条列进 README——Pagekin（章节蓝图）、oh-story-claudecode（按需加载/质检记录）、webnovel-writer（六维审查）、chronicler 与墨屿（作者管资产/章后记忆）、novel-skills（活设定集）、sumeru（三级敏感内容分级）、fanqie-radar（榜单快照）、StoryGraphs（出席矩阵）、obsidian-writing-studio（写作冲刺）、obsidian-snowflake-method（雪花法）、open-wrimo（统计口径）、random_chinese_fantasy_names（起名类目）、graphify-novel（群像 hub 检测），以及 DSH 宿主、Node.js、node:test。
 
 **安装**
 
