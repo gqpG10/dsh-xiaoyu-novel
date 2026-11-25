@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.19.0';
+var BUILD = '3.20.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1352,7 +1352,7 @@ var BUILD = '3.19.0';
     /* 力模拟一步（d3-force 简化版：斥力 + 弹簧 + 向心 + 碰撞） */
     function tick() {
       var a = G.alpha;
-      if (a < 0.004) {
+      if (a < 0.012) {
         /* 冷却冻结（3.12.4）：清速度杜绝残余惯性——不清会有数值残压，
            表现为整图单向慢漂。冻结帧速度归零，绝对静止。 */
         G.nodes.forEach(function (n) { if (n.fx == null) { n.vx = 0; n.vy = 0; } });
@@ -1385,13 +1385,18 @@ var BUILD = '3.19.0';
       });
       ns.forEach(function (n) {
         if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0; return; }
-        n.vx += (W / 2 - n.x) * 0.0012 * a;
-        n.vy += (H / 2 - n.y) * 0.0012 * a;
-        n.vx *= 0.82; n.vy *= 0.82;
+        /* 3.20.0 漂移治理：向心力减半（0.0012→0.0005）——原值会把边缘节点
+           持续往画布中心拽，用户看到的就是"整图在动"。阻尼加大（0.82→0.72）
+           让每帧位移更快收敛。 */
+        n.vx += (W / 2 - n.x) * 0.0005 * a;
+        n.vy += (H / 2 - n.y) * 0.0005 * a;
+        n.vx *= 0.72; n.vy *= 0.72;
         n.x += Math.max(-9, Math.min(9, n.vx));
         n.y += Math.max(-9, Math.min(9, n.vy));
       });
-      G.alpha *= 0.993;
+      /* 3.20.0：衰减 0.993→0.985——原值要 ~1100 帧（约 18 秒）才到冻结阈值，
+         这 18 秒里图一直在肉眼可见地慢动 = 用户说的"漂移"。 */
+      G.alpha *= 0.985;
     }
 
     /* 骨架模式（防蛛网）：只显示每条边强度 top 的骨架，其余进「+N」折叠 */
@@ -1454,9 +1459,10 @@ var BUILD = '3.19.0';
       /* 3.12.5 终极停帧：稳定 600ms 后 alpha=0 且完全跳过物理 tick（只画
          不力），漂移在任何来源下都不可能持续；交互把 alpha 抬回 >0 即恢复。 */
       if (G.alpha > 0) {
-        if (G.alpha < 0.004 && !G.needFit) {
+        /* 3.20.0：阈值 0.004→0.012、稳定窗 600→350ms——更快进入冻结。 */
+        if (G.alpha < 0.012 && !G.needFit) {
           if (G._steady == null) G._steady = Date.now();
-          if (Date.now() - G._steady > 600) { G.alpha = 0; G.nodes.forEach(function (n) { if (n.fx == null) { n.vx = 0; n.vy = 0; } }); }
+          if (Date.now() - G._steady > 350) { G.alpha = 0; G.nodes.forEach(function (n) { if (n.fx == null) { n.vx = 0; n.vy = 0; } }); }
         } else { G._steady = null; }
         tick();
       }
@@ -1468,10 +1474,15 @@ var BUILD = '3.19.0';
       bg.addColorStop(0.55, '#161c2a');
       bg.addColorStop(1, '#0e1116');
       ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-      /* 稀疏点阵：给空背景一点质感（缩放无关的静态网格） */
-      ctx.fillStyle = 'rgba(148,163,190,0.06)';
-      for (var gx = 13; gx < W; gx += 26) {
-        for (var gy = 13; gy < H; gy += 26) ctx.fillRect(gx, gy, 1, 1);
+      /* 3.20.0：顶部冷光带——纵向渐变叠一层，打破纯径向的单调感。 */
+      var topGlow = ctx.createLinearGradient(0, 0, 0, H * 0.4);
+      topGlow.addColorStop(0, 'rgba(76,108,168,0.10)');
+      topGlow.addColorStop(1, 'rgba(76,108,168,0)');
+      ctx.fillStyle = topGlow; ctx.fillRect(0, 0, W, H * 0.4);
+      /* 点阵加密（26→22）+ 微调透明度 */
+      ctx.fillStyle = 'rgba(148,163,190,0.07)';
+      for (var gx = 11; gx < W; gx += 22) {
+        for (var gy = 11; gy < H; gy += 22) ctx.fillRect(gx, gy, 1, 1);
       }
       /* 选中态聚光暗角：把视线压向被选中的关系网 */
       if (adj) {
@@ -1491,7 +1502,8 @@ var BUILD = '3.19.0';
         var dx = B.x - A.x, dy = B.y - A.y;
         var len = Math.sqrt(dx * dx + dy * dy) || 1;
         /* 曲线控制点：垂直偏移，奇偶交替方向（相邻边不叠死一起） */
-        var bow = Math.min(34, 0.13 * len) * (ei % 2 ? 1 : -1);
+        /* 3.20.0：弓度比例 0.13→0.09、上限 34→28——曲线更含蓄，长边不飘。 */
+        var bow = Math.min(28, 0.09 * len) * (ei % 2 ? 1 : -1);
         var cxp = (A.x + B.x) / 2 - (dy / len) * bow;
         var cyp = (A.y + B.y) / 2 + (dx / len) * bow;
         /* 第一遍：宽晕（低透明大线宽，光感） */
@@ -1519,16 +1531,16 @@ var BUILD = '3.19.0';
             var tw = ctx.measureText(tag).width;
             ctx.beginPath();
             if (ctx.roundRect) { ctx.roundRect(mx2 - tw / 2 - 6, my2 - 9.5, tw + 12, 19, 9.5); } else { ctx.rect(mx2 - tw / 2 - 6, my2 - 9.5, tw + 12, 19); }
-            ctx.fillStyle = hot ? 'rgba(21,38,67,0.92)' : 'rgba(13,17,25,0.82)';
+            ctx.fillStyle = hot ? 'rgba(21,38,67,0.94)' : 'rgba(16,20,29,0.88)';
             ctx.fill();
-            ctx.strokeStyle = hot ? '#3d5a8a' : (st.c + '66');
+            ctx.strokeStyle = hot ? '#4a6ba3' : (st.c + '77');
             ctx.lineWidth = 1; ctx.stroke();
             ctx.fillStyle = hot ? '#9cc0ff' : '#b8c2cf';
             ctx.fillText(tag, mx2, my2 + 0.5);
           }
         }
         /* 流动粒子：全图常态微流（活着的感觉），选中邻接加密加亮 */
-        var dots = hot ? 3 : (dim ? 0 : 2);
+        var dots = hot ? 3 : (dim ? 0 : 1);
         for (var f = 0; f < dots; f++) {
           var tt = ((t0 * 0.4 + f / Math.max(dots, 1) + ei * 0.17) % 1);
           var uu = 1 - tt;
@@ -1552,10 +1564,13 @@ var BUILD = '3.19.0';
         var tr = tier(n.name);
         ctx.globalAlpha = dim ? 0.12 : 1;
         /* 柔和大光晕 */
-        var glow = ctx.createRadialGradient(p.x, p.y, rad * 0.35, p.x, p.y, rad * 2.8);
-        glow.addColorStop(0, tr.c + (hot || hero ? '59' : '40'));
+        /* 3.20.0：光晕 2.8→2.3 倍收敛——大光晕互相叠成"雾一片"，收一点每个
+           角色的领地感更清楚。透明度梯度改两段（先 55% 后 0）更利落。 */
+        var glow = ctx.createRadialGradient(p.x, p.y, rad * 0.9, p.x, p.y, rad * 2.3);
+        glow.addColorStop(0, tr.c + (hot || hero ? '4d' : '36'));
+        glow.addColorStop(0.55, tr.c + (hot || hero ? '1c' : '14'));
         glow.addColorStop(1, tr.c + '00');
-        ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.8, 0, Math.PI * 2);
+        ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.3, 0, Math.PI * 2);
         ctx.fillStyle = glow; ctx.fill();
         /* 主角金色外环 */
         if (hero && !dim) {
@@ -1591,17 +1606,23 @@ var BUILD = '3.19.0';
         /* 名字：胶囊标签（缩放小时只显示核心/选中/主角） */
         var showName = G.view.scale >= 0.7 || hot || hero || tr.t === '核心';
         if (showName) {
-          var nm = String(n.name).slice(0, 6);
+          /* 3.20.0：名字 6→8 字（"贾正经"们不用再截断）；标签底加发丝亮边。 */
+          var nm = String(n.name).slice(0, 8);
           ctx.font = ((hot || hero) ? 'bold ' : '') + Math.round(12.5 * Math.min(1.25, Math.max(0.85, sc))) + 'px sans-serif';
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           var tw2 = ctx.measureText(nm).width;
           var pillY = p.y + rad + 15;
           ctx.beginPath();
           if (ctx.roundRect) { ctx.roundRect(p.x - tw2 / 2 - 7, pillY - 9.5, tw2 + 14, 19, 9.5); } else { ctx.rect(p.x - tw2 / 2 - 7, pillY - 9.5, tw2 + 14, 19); }
-          ctx.fillStyle = hot ? 'rgba(24,36,58,0.92)' : 'rgba(13,17,25,0.78)';
+          ctx.fillStyle = hot ? 'rgba(24,36,58,0.94)' : 'rgba(15,19,28,0.85)';
           ctx.fill();
-          ctx.strokeStyle = tr.c + '4d';
+          ctx.strokeStyle = hot ? 'rgba(156,192,255,0.55)' : (tr.c + '55');
           ctx.lineWidth = 1; ctx.stroke();
+          /* 胶囊顶部 1px 高光——玻璃感 */
+          ctx.beginPath();
+          ctx.moveTo(p.x - tw2 / 2 - 4, pillY - 8.5);
+          ctx.lineTo(p.x + tw2 / 2 + 4, pillY - 8.5);
+          ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1; ctx.stroke();
           ctx.fillStyle = hot ? '#ffffff' : '#eef1f6';
           ctx.fillText(nm, p.x, pillY + 0.5);
         }
@@ -1715,7 +1736,8 @@ var BUILD = '3.19.0';
           var w = toWorld(p.x, p.y);
           var n = G.nodes[drag.i];
           n.fx = w.x + drag.ox; n.fy = w.y + drag.oy;
-          G.alpha = Math.max(G.alpha, 0.22);
+          /* 3.20.0：拖拽唤醒 0.22→0.08——拖一个节点不该全图跟着动。 */
+          G.alpha = Math.max(G.alpha, 0.08);
         } else if (pan != null) {
           var wx = (p.x - pan.sx) / pan.scale, wy = (p.y - pan.sy) / pan.scale;
           G.view.x = pan.vx - wx; G.view.y = pan.vy - wy;
@@ -1728,7 +1750,7 @@ var BUILD = '3.19.0';
           /* 3.13.1 漂移真修：只有真拖拽（moved≥6）才唤醒物理——点击选中绝不
              抬 alpha。冻结态是「未平衡的暂停」，点击一唤醒整图就继续向平衡
              缓慢迁移（=用户看到的往边上漂）。点击不该有任何移动。 */
-          if (moved >= 6) G.alpha = Math.max(G.alpha, 0.3);
+          if (moved >= 6) G.alpha = Math.max(G.alpha, 0.15);
           /* 点击选中（3.12.4）：不再 render()——重建 DOM 会打断 rAF 动画链，
              旧 canvas 收不到 pointerup、事件半途丢失；选中态只改 G.sel
              （画布内高亮/详情卡当帧就换），S.graphSel 存着，下次 drawGraph 继承。 */
