@@ -2076,7 +2076,7 @@ export async function registerCreatorRoutes(ctx) {
           // 智能上下文引用设定时盖章（幂等，当天只写一次）。
           const body = await readBody(req, res)
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
-          json(res, 200, touchBible(novelDir, body.file))
+          json(res, 200, touchBible(novelDir, body.rel || body.file))
           return
         }
 

@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.24.0';
+var BUILD = '3.25.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1290,10 +1290,41 @@ var BUILD = '3.24.0';
       '<button type="button" id="wzRankBtn" class="sm">生成榜单选题指令</button></div>' +
       '<div class="muted">地图：按本书已有设定生成势力版图结构表（存 world/）。榜单：需要主人把想参考的公开榜单快照（书名+分类+简介）粘贴给 AI，AI 只做选题分析不抓数据。</div></div>';
   }
+  /* 3.25.0 活设定集：设定按最近使用排序 + 一条盖章入口。 */
+  function ensureBibleUsage() {
+    if (S.bibleUsage) return;
+    get('bible-usage', wsQuery()).then(function (d) { S.bibleUsage = d; if (S.tab === 'world') render(); }).catch(function () { S.bibleUsage = { usage: [] }; });
+  }
+  function vBibleCard() {
+    ensureBibleUsage();
+    var u = (S.bibleUsage && S.bibleUsage.usage) || [];
+    if (!u.length) return '<div class="card"><h3>活设定集</h3><div class="muted">还没有设定条目（world/ science/ research/ 目录）</div></div>';
+    var used = u.filter(function (x) { return x.lastUsed; });
+    var rest = u.filter(function (x) { return !x.lastUsed; });
+    var row = function (x) {
+      return '<div class="row"><span class="k">' + esc(x.name) + '</span><span class="v">' +
+        (x.lastUsed ? '<span class="pill ok">' + esc(String(x.lastUsed).slice(0, 10)) + '</span>' : '<span class="pill">未引用</span>') +
+        ' <span class="muted">' + esc(x.category) + '</span>' +
+        '<button type="button" class="sm bibleTouch" data-rel="' + esc(x.rel) + '" style="margin-left:6px">标记已用</button></span></div>';
+    };
+    return '<div class="card"><h3>活设定集 <span class="badge">最近使用 ' + used.length + ' / 全部 ' + u.length + '</span></h3>' +
+      (used.length ? used.slice(0, 8).map(row).join('') : '<div class="muted">还没有引用记录：写作时点「标记已用」，用过的设定会浮到最上面</div>') +
+      (rest.length ? '<div class="muted" style="margin-top:4px">未引用 ' + rest.length + ' 条（自动沉底，避免设定写了没人用）</div>' : '') +
+      '</div>';
+  }
+  function bindBibleTouch() {
+    Array.prototype.forEach.call(document.querySelectorAll('.bibleTouch'), function (btn) {
+      btn.addEventListener('click', function () {
+        postJson('bible-touch', { path: S.ws, rel: btn.getAttribute('data-rel') })
+          .then(function () { note('已标记使用'); S.bibleUsage = null; render(); })
+          .catch(function (e) { note('标记失败：' + ((e && e.message) || e)); });
+      });
+    });
+  }
   function vWorld(d) {
     var list = d.world || [];
-    if (!list.length) return vWorldExtra() + '<div class="card"><div class="muted">还没有设定</div></div>';
-    return vWorldExtra() + list.map(function (w) {
+    if (!list.length) return vBibleCard() + vWorldExtra() + '<div class="card"><div class="muted">还没有设定</div></div>';
+    return vBibleCard() + vWorldExtra() + list.map(function (w) {
       return '<div class="card"><h3>' + esc(w.name || w.file) +
         (w.category ? '<span class="pill">' + esc(w.category) + '</span>' : '') +
         (w.file ? '<button type="button" class="sm editcard" data-rel="world/' + esc(w.file) + '" data-title="' + esc(w.name || w.file) + '" style="margin-left:auto">编辑</button>' : '') + '</h3>' +
@@ -3096,6 +3127,7 @@ var BUILD = '3.24.0';
     if (S.tab === 'audit') { bindAudit(); bindTodo(); }
     if (S.tab === 'todo') bindTodo();
     if (S.tab === 'context') { var cf = S.ctxFile || (S.ctxFile = chapterFileDefault()); ensureCtxPack(cf); ensureBlueprint(cf); bindContext(); bindBlueprint(cf); }
+    if (S.tab === 'world') bindBibleTouch();
     if (S.tab === 'foreshadows') bindFore();
     if (S.tab === 'timeline') bindTimeline();
     if (S.tab === 'style') bindStyle();

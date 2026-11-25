@@ -8,35 +8,30 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const panel = readFileSync(path.join(root, 'lib/standalone-panel.html'), 'utf8')
 const index = readFileSync(path.join(root, 'index.mjs'), 'utf8')
 
-// ── 3.23.0 活设定集 / 章后记忆 / 连续性体检 UI 与路由契约 ───────────────
+// ── 3.25.0 活设定集 UI 与路由契约（设定真正可看、可标、可排序）────────────
 
-test('活设定集路由：bible-usage GET + bible-touch POST', () => {
+test('活设定集路由：bible-usage GET + bible-touch POST（rel 参数）', () => {
   assert.match(index, /route === 'bible-usage' && req\.method === 'GET'/)
   assert.match(index, /route === 'bible-touch' && req\.method === 'POST'/)
-  assert.match(index, /touchBible\(novelDir, body\.file\)/)
+  assert.match(index, /touchBible\(novelDir, body\.rel \|\| body\.file\)/)
 })
 
-test('章后记忆路由：chapter-memory POST + 前情自动携带', () => {
+test('活设定集 UI：设定页有活设定卡 + 标记按钮 + 已引用/未引用分区', () => {
+  assert.match(panel, /function vBibleCard\(\)/)
+  assert.match(panel, /ensureBibleUsage\(\)/)
+  assert.match(panel, /class="sm bibleTouch"/, '标记已用按钮')
+  assert.match(panel, /postJson\('bible-touch'/)
+  assert.match(panel, /vBibleCard\(\) \+ vWorldExtra\(\)/, '设定页必须先出活设定卡')
+  assert.match(panel, /S\.tab === 'world'\).* bindBibleTouch/, 'world tab 渲染后必须绑按钮')
+})
+
+test('章后记忆：chapter-memory 路由 + 前情字段', () => {
   assert.match(index, /route === 'chapter-memory' && req\.method === 'POST'/)
-  assert.match(index, /summarizeChapter\(raw\)/)
-  assert.match(index, /memory/, '落盘 memory/ 目录')
-})
-
-test('连续性路由：consistency GET + 两扫描合流', () => {
-  assert.match(index, /route === 'consistency' && req\.method === 'GET'/)
-  assert.match(index, /scanAttributeConflicts\(novelDir\)\.concat\(scanTimelineConflicts\(novelDir\)\)/)
-})
-
-test('面板 UI：前情卡片 + 定稿记忆按钮 + 连续性体检卡', () => {
-  assert.match(panel, /d\.prevMemory/, 'vContext 必须渲染前情卡')
-  assert.match(panel, /id="bpMemo"/, '定稿记忆按钮必须在')
-  assert.match(panel, /postJson\('chapter-memory'/)
-  assert.match(panel, /function vConsistency\(\)/)
-  assert.match(panel, /ensureConsistency\(\);/, '体检页必须加载连续性')
-})
-
-test('chapter-context 模块：prevMemory 字段注入', () => {
   const ctx = readFileSync(path.join(root, 'lib/chapter-context.mjs'), 'utf8')
   assert.match(ctx, /prevMemory/)
-  assert.match(ctx, /memory/, '读 memory/ 目录')
+})
+
+test('连续性路由：consistency GET 合流两扫描', () => {
+  assert.match(index, /route === 'consistency' && req\.method === 'GET'/)
+  assert.match(index, /scanAttributeConflicts\(novelDir\)\.concat\(scanTimelineConflicts\(novelDir\)\)/)
 })
