@@ -2759,6 +2759,52 @@ function styleRegisterGroup(register) {
           return
         }
 
+        if (route === 'beats' && req.method === 'GET') {
+          // 3.18.0 Save the Cat 15 拍节拍表：beats.yml 读出，没有就是空表。
+          try {
+            const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+            let beats = []
+            try {
+              const yaml = loadYamlLib(resolveDshHome())
+              const text = readFileSync(path.join(novelDir, 'beats.yml'), 'utf8')
+              const parsed = yaml ? yaml.parse(text) : null
+              if (Array.isArray(parsed)) beats = parsed
+            } catch { /* 没有 beats.yml 就是空表 */ }
+            json(res, 200, { ok: true, beats })
+          } catch (error) {
+            const status = error && error.status ? error.status : 500
+            json(res, status, { ok: false, error: sanitizeWithRoots(String(error && error.message ? error.message : error)) })
+          }
+          return
+        }
+
+        if (route === 'beats-save' && req.method === 'POST') {
+          // 3.18.0 节拍表保存：15 行 { beat, file, note }，写前留 .bak。
+          const body = await readBody(req, res)
+          try {
+            const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+            const rows = Array.isArray(body.beats) ? body.beats : []
+            const clean = rows.map((r) => ({
+              beat: Math.max(1, Math.min(15, Number(r.beat) || 0)),
+              file: typeof r.file === 'string' ? String(r.file).slice(0, 80) : '',
+              note: typeof r.note === 'string' ? r.note.slice(0, 300) : '',
+            })).filter((r) => r.beat >= 1)
+            const yaml = loadYamlLib(resolveDshHome())
+            if (!yaml) {
+              json(res, 500, { ok: false, error: 'yaml 库不可用' })
+              return
+            }
+            const header = '# beats.yml —— Save the Cat 15 拍节拍表（3.18.0 面板维护）：beat=拍号(1-15)，file=锚点章节文件名，note=这一拍在这本书里怎么落。\n'
+            const file = path.join(novelDir, 'beats.yml')
+            try { copyFileSync(file, file + '.bak') } catch { /* 首次没有旧文件 */ }
+            writeFileSync(file, header + yaml.stringify(clean), 'utf8')
+            json(res, 200, { ok: true, count: clean.length })
+          } catch (error) {
+            json(res, 500, { ok: false, error: sanitizeWithRoots(String(error && error.message ? error.message : error)) })
+          }
+          return
+        }
+
         if (route === 'ledger-stats' && req.method === 'GET') {
           // 账本体检（0.15.0）：每本账体积/条数/超长条数/最长几条预览。
           // 口径与 checkProject 的账本膨胀 warn 一致，面板概览页据此出卡。

@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.17.0';
+var BUILD = '3.18.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -138,7 +138,7 @@ var BUILD = '3.17.0';
             proj:null,
             trash:null, ledger:null, slim:null,
             git:null, gitLog:null, versionsFile:'', versions:null,
-            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[], sprint:null, qcDone:{} };
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[], sprint:null, qcDone:{}, beats:null, snowOpen:false, nameGen:null, nameCat:'ming', snow:{} };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -372,6 +372,36 @@ var BUILD = '3.17.0';
   }
 
   /* ── 概览 ── */
+  /* 3.18.0 雪花法十步向导（借鉴 obsidian-snowflake-method）：每步一个框，
+     存 localStorage（按工作区隔离）；十步齐了可一键打包成开书指令给 AI。 */
+  var SNOW_STEPS = [
+    ['一句话主线', '例：被裁员造谣的打工人觉醒谣言成真系统，靠「说什么成什么」反手打穿造谣产业链。'],
+    ['一段话扩写', '五句：①背景与日常 ②打破日常的事件 ③主角的选择与新世界 ④中点反转 ⑤结局与代价。'],
+    ['主要角色一句话', '主角一句 / 头号对手一句 / 情感线一句——每人都要有「要什么+缺什么」。'],
+    ['主角四行卡', '目标 / 障碍 / 成长弧 / 结局下场。'],
+    ['对手四行卡', '目标 / 手段 / 与主角的镜像关系 / 下场。'],
+    ['配角与情感线', '每人一句：功能（递刀/递糖/递情报）+ 结局。'],
+    ['一页故事', '把第2步的五句各扩成一段（每段 100-200 字）。'],
+    ['角色详述', '主角与对手的完整卡：外貌/口癖/软肋/秘密。'],
+    ['卷纲四段', '四段式段落划分（每段末一个中级爽点），对应 Save the Cat 的幕结构。'],
+    ['章纲清单', '按段落列章：每章一行=冲突+爽点+钩子类型。']
+  ];
+  function snowKey() { return 'xiaoyu.snow.' + S.ws; }
+  function vSnow() {
+    var filled = SNOW_STEPS.filter(function (s, i) { return String(S.snow[i] || '').trim() !== ''; }).length;
+    var head = '<div class="card"><h3>雪花法向导 <span class="badge">' + filled + ' / 10 步</span>' +
+      '<button type="button" id="snowToggle" class="sm" style="margin-left:auto">' + (S.snowOpen ? '收起' : '展开') + '</button></h3>';
+    if (!S.snowOpen) return head + '<div class="muted">十步从一句话长成整本书：一句话 → 一段话 → 角色卡 → 一页故事 → 卷纲 → 章纲。点展开逐步填。</div></div>';
+    return head +
+      SNOW_STEPS.map(function (s, i) {
+        return '<div class="row" style="flex-direction:column;align-items:stretch"><span class="k">' + (i + 1) + '. ' + s[0] +
+          '<div class="muted" style="font-size:10.5px">' + s[1] + '</div></span>' +
+          '<textarea class="snowTa" data-i="' + i + '" style="width:100%;min-height:' + (i === 6 || i >= 8 ? '5em' : '2.2em') + ';font-size:12.5px">' + esc(S.snow[i] || '') + '</textarea></div>';
+      }).join('') +
+      '<div class="btnrow"><button type="button" id="snowCopy" class="sm pri">复制为开书指令（粘到 DSH 对话）</button>' +
+      '<button type="button" id="snowClear" class="sm warn">清空</button></div>' +
+      '<div class="muted">内容自动保存（按书隔离）；指令把十步打包成开书九件套的生成任务。</div></div>';
+  }
   function vOverview(d) {
     var p = d.project || {}, ch = d.chapters || [], words = 0, by = {};
     ch.forEach(function (c) { words += Number(c.words || 0); var s = c.status || '未标'; by[s] = (by[s] || 0) + 1; });
@@ -398,6 +428,7 @@ var BUILD = '3.17.0';
             (!it.done && it.hint ? ' <span class="muted">' + esc(it.hint) + '</span>' : '') + '</span></div>';
         }).join('') + '</div>';
     }
+    var snowCard = vSnow();
     var shelf = '<div class="card"><h3>书架</h3>' + ((S.wsList || []).filter(function (w) { return w.hasNovel; }).map(function (w) {
       var cur = w.path === S.ws;
       var meta = (cur && S.data) ? '<span class="muted" style="font-size:12px">' + ((S.data.chapters || []).length) + ' 章 · ' + ((S.progress && S.progress.today) || 0) + ' 字' +
@@ -405,7 +436,7 @@ var BUILD = '3.17.0';
       return '<button type="button" class="wsbtn' + (cur ? ' cur' : '') + '" data-ws="' + esc(w.path) + '">' +
         esc(w.name || w.path) + (cur ? '<span class="pill good">当前</span>' : '') + '<br>' + meta + '</button>';
     }).join('') || '<div class="muted">（无）</div>') + weekBars() + '</div>';
-    return setupCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
+    return setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
       ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
     ]) + '</div>' +
@@ -546,6 +577,37 @@ var BUILD = '3.17.0';
     }).join('') + '</div>';
   }
 
+  /* 3.18.0 雪花向导绑定：切换展开/收起、textarea 边打边存（不重渲染）。 */
+  function bindSnow() {
+    var tg = $('snowToggle');
+    if (tg) tg.addEventListener('click', function () { S.snowOpen = !S.snowOpen; render(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.snowTa'), function (ta) {
+      ta.addEventListener('input', function () {
+        S.snow[Number(ta.getAttribute('data-i'))] = ta.value;
+        try { localStorage.setItem(snowKey(), JSON.stringify(S.snow)); } catch (e) {}
+      });
+    });
+    var cp = $('snowCopy');
+    if (cp) cp.addEventListener('click', function () {
+      var parts = [];
+      SNOW_STEPS.forEach(function (s, i) {
+        var v2 = String(S.snow[i] || '').trim();
+        if (v2) parts.push('【' + (i + 1) + '. ' + s[0] + '】\n' + v2);
+      });
+      if (!parts.length) { note('十步草稿都还是空的，先填几步'); return; }
+      var txt = '请按雪花法十步结果帮我开书，产出开书九件套：\n\n' + parts.join('\n\n') +
+        '\n\n要求：按《小鱼创作台》的开书九件套（概览/章节/角色/伏笔/关系/时间线/设定/风格/索引板）生成对应 yml 账本内容，我粘贴回面板。';
+      copy(txt).then(function (ok) { note(ok ? '开书指令已复制（' + parts.length + ' 步）' : '复制失败，手动选文本吧'); });
+    });
+    var cl = $('snowClear');
+    if (cl) cl.addEventListener('click', function () {
+      confirmAct('清空这本的十步草稿？（不可恢复）', function () {
+        S.snow = {};
+        try { localStorage.removeItem(snowKey()); } catch (e) {}
+        render();
+      });
+    });
+  }
   function bindGate() {
     /* 3.17.0 质检矩阵勾选：不重渲染（重渲染会丢表格），只落本地。 */
     Array.prototype.forEach.call(document.querySelectorAll('.qcChk'), function (ck) {
@@ -1030,10 +1092,18 @@ var BUILD = '3.17.0';
       ]) + '</div>';
     }).join('');
   }
+  /* 3.18.0 世界观地图 & 榜单选题（最小可行版）：
+     不在面板里画地图/抓榜单——做成 AI 指令打包，把结构化结果带回来贴进设定页。 */
+  function vWorldExtra() {
+    return '<div class="card"><h3>地图与选题指令 <span class="badge">粘到 DSH 对话跑</span></h3>' +
+      '<div class="btnrow"><button type="button" id="wzMapBtn" class="sm pri">生成地图结构化指令</button>' +
+      '<button type="button" id="wzRankBtn" class="sm">生成榜单选题指令</button></div>' +
+      '<div class="muted">地图：按本书已有设定生成势力版图结构表（存 world/）。榜单：需要主人把想参考的公开榜单快照（书名+分类+简介）粘贴给 AI，AI 只做选题分析不抓数据。</div></div>';
+  }
   function vWorld(d) {
     var list = d.world || [];
-    if (!list.length) return '<div class="card"><div class="muted">还没有设定</div></div>';
-    return list.map(function (w) {
+    if (!list.length) return vWorldExtra() + '<div class="card"><div class="muted">还没有设定</div></div>';
+    return vWorldExtra() + list.map(function (w) {
       return '<div class="card"><h3>' + esc(w.name || w.file) +
         (w.category ? '<span class="pill">' + esc(w.category) + '</span>' : '') +
         (w.file ? '<button type="button" class="sm editcard" data-rel="world/' + esc(w.file) + '" data-title="' + esc(w.name || w.file) + '" style="margin-left:auto">编辑</button>' : '') + '</h3>' +
@@ -1903,6 +1973,51 @@ var BUILD = '3.17.0';
     S.proj = { values: p, hash: (S.data && S.data.project_hash) || '' };
     render();
   }
+  /* 3.18.0 Save the Cat 15 拍节拍表（beats.yml，面板维护）。 */
+  var BEATS = [
+    ['开场画面','第一章前 300 字的定格：主角落难前的世界一瞥'],
+    ['主题呈现','有个人（面板/长辈/反派）说一句点题的话，主角当时没听懂'],
+    ['铺垫','金手指、对手链、欲望链的种子在这一段埋下'],
+    ['催化剂','打破日常的事件：泼谣/觉醒/穿越/退婚'],
+    ['争执','主角犹豫怎么应对，怕什么、会失去什么'],
+    ['进入第二幕','主角主动选择踏入新世界（开店/接单/入局）'],
+    ['B故事','情感线或挚友线登场，开始 parallel 推进'],
+    ['玩乐时光','新能力/新身份的爽点连发段（ danger：别超 3 章）'],
+    ['中点','假胜利或假失败——局势反转的锚点章'],
+    ['坏人逼近','对手反扑，压力逐章加码'],
+    ['一无所有','最大挫折：失去人/物/名声'],
+    ['灵魂黑夜','消化失败，想明白下一步'],
+    ['进入第三幕','集结反攻：新方案成形'],
+    ['结局','决战打穿对手链，爽点大兑现'],
+    ['终场画面','与开场对照的新日常 + 下一卷钩子']
+  ];
+  function ensureBeats() {
+    if (S.beats) return;
+    get('beats', wsQuery()).then(function (d) { S.beats = d; if (S.tab === 'project') render(); }).catch(function () { S.beats = { ok: false, beats: [] }; });
+  }
+  function vBeats() {
+    ensureBeats();
+    var saved = S.beats && S.beats.beats || [];
+    var byBeat = {};
+    saved.forEach(function (b) { byBeat[b.beat] = b; });
+    var chs = (S.data && S.data.chapters) || [];
+    var opts = function (sel) {
+      return '<option value="">（未锚定）</option>' + chs.map(function (c) {
+        return '<option value="' + esc(c.file) + '"' + (sel === c.file ? ' selected' : '') + '>第' + esc(c.num != null ? c.num : '?') + '章 ' + esc((c.title || '').slice(0, 14)) + '</option>';
+      }).join('');
+    };
+    return '<div class="card"><h3>节拍表 <span class="badge">Save the Cat 15 拍 × 本书</span></h3>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<tr><th style="text-align:left;padding:3px 4px;color:#8d939c">拍</th><th style="text-align:left;padding:3px 4px;color:#8d939c">锚点章</th><th style="text-align:left;padding:3px 4px;color:#8d939c">怎么落</th></tr>' +
+      BEATS.map(function (b, i) {
+        var cur = byBeat[i + 1] || {};
+        return '<tr><td style="padding:3px 4px;white-space:nowrap"><b>' + (i + 1) + '. ' + b[0] + '</b><div class="muted" style="font-size:10.5px">' + b[1] + '</div></td>' +
+          '<td style="padding:3px 4px"><select class="beatFile" data-i="' + i + '" style="max-width:11em">' + opts(cur.file) + '</select></td>' +
+          '<td style="padding:3px 4px"><input class="beatNote" data-i="' + i + '" style="width:100%" value="' + esc(cur.note || '') + '" placeholder="这一拍在这本书里怎么落"></td></tr>';
+      }).join('') + '</table>' +
+      '<div class="btnrow"><button type="button" id="beatsSave" class="sm pri">保存节拍表（beats.yml）</button></div>' +
+      '<div class="muted">拍是结构检查器：卷纲对照它看缺哪拍；连载书不必全填，填关键拍即可。</div></div>';
+  }
   function vProject() {
     ensureProj();
     if (!S.proj || S.proj.error) return '<div class="err">' + esc((S.proj && S.proj.error) || '读取中…') + '</div>';
@@ -1925,9 +2040,22 @@ var BUILD = '3.17.0';
       '<div class="row"><span class="k">模式</span><span class="v"><select id="pMode" style="width:100%">' + modeOpts + '</select></span></div>' +
       '<div class="row"><span class="k">简介</span><span class="v"><textarea id="pDesc" class="small" style="width:100%">' + esc(v.description || '') + '</textarea></span></div>' +
       '<div class="btnrow"><button type="button" id="projSave" class="sm pri">保存</button>' +
-      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>';
+      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vBeats();
   }
   function bindProj() {
+    var bs = $('beatsSave');
+    if (bs) bs.addEventListener('click', function () {
+      var files = Array.prototype.map.call(document.querySelectorAll('.beatFile'), function (s) { return s.value; });
+      var notes = Array.prototype.map.call(document.querySelectorAll('.beatNote'), function (s) { return s.value; });
+      var rows = [];
+      for (var i = 0; i < 15; i++) {
+        if (files[i] || notes[i]) rows.push({ beat: i + 1, file: files[i] || '', note: notes[i] || '' });
+      }
+      note('保存节拍表…');
+      postJson('beats-save', { path: S.ws, beats: rows }).then(function (d2) {
+        note('节拍表已保存（' + d2.count + ' 拍）'); S.beats = null; render();
+      }).catch(function (e) { note('失败：' + ((e && e.message) || e)); });
+    });
     var save = $('projSave'); if (!save) return;
     save.addEventListener('click', function () {
       note('保存 project.yml…');
@@ -1952,6 +2080,51 @@ var BUILD = '3.17.0';
     get('trash', wsQuery()).then(function (d) { S.trash = d; render(); }).catch(function () { S.trash = { ok:true, items:[] }; });
     get('ledger-stats', wsQuery()).then(function (d) { S.ledger = d; }).catch(function () {});
     get('character-states', wsQuery()).then(function (d) { S.charStates = d; }).catch(function () {});
+  }
+  /* 3.18.0 名词生成器（借鉴 random_chinese_fantasy_names 的类目法，纯前端零依赖）：
+     六类词库 × 随机组合，一键复制；不满意再摇一次。 */
+  var NAME_BANK = {
+    ming: { label: '人名', combos: [
+      ['陈林叶沈顾苏陆白秦楚萧', '云风羽寒山远舟行知秋', '尘雪岚川白青离']
+    ]},
+    gongfa: { label: '功法', combos: [
+      ['太上紫霄玄元九转大衍归墟', '罡煞无形混元周天'], ['剑诀图录经典功法真解要义'], ['碎星镇岳摘月断川燃海问天']
+    ]},
+    danyao: { label: '丹药', combos: [
+      ['九转紫金玄清明目培元固本', '筑基凝婴洗髓伐毛'], ['丹丸散膏露液'], ['生生造化回春驻颜洗尘通脉']
+    ]},
+    fabao: { label: '法宝', combos: [
+      ['紫霄玄天斩星噬魂锁妖镇海', '焚天'], ['钟鼎镜铃塔印幡灯'], ['九幽无量万载不朽']
+    ]},
+    menpai: { label: '门派', combos: [
+      ['太虚玄天青冥紫霞流云剑归', '藏剑'], ['宗门派阁山庄谷殿宫观'], ['']
+    ]},
+    diming: { label: '地名', combos: [
+      ['落霞青冥赤炎幽冥九幽碧波', '寒潭乱石断魂'], ['城坊泽渊渊林岛原海山'], ['']
+    ]}
+  };
+  function pick(s) { return s ? s[Math.floor(Math.random() * s.length)] : ''; }
+  function genName(cat, n) {
+    var bank = NAME_BANK[cat];
+    if (!bank) return [];
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      out.push(bank.combos.map(pick).join(''));
+    }
+    return out;
+  }
+  function vNameGen() {
+    var cats = Object.keys(NAME_BANK);
+    var last = (S.nameGen && S.nameGen.results) || [];
+    return '<div class="card"><h3>名词生成器 <span class="badge">六类 × 随机组合</span></h3>' +
+      '<div class="btnrow" style="flex-wrap:wrap">' + cats.map(function (c) {
+        return '<button type="button" class="sm nameCat' + (S.nameCat === c ? ' pri' : '') + '" data-cat="' + c + '">' + NAME_BANK[c].label + '</button>';
+      }).join('') +
+      ' <button type="button" id="nameGenBtn" class="sm pri">摇 10 个</button></div>' +
+      (last.length ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">' + last.map(function (nm) {
+        return '<button type="button" class="sm namePick" data-nm="' + esc(nm) + '" style="border:1px solid #2a3346;background:#141925">' + esc(nm) + '</button>';
+      }).join('') + '</div><div class="muted" style="margin-top:4px">点词条即复制。不合口味就再摇。</div>' : '') +
+      '</div>';
   }
   function vTools() {
     ensureTools();
@@ -1990,6 +2163,7 @@ var BUILD = '3.17.0';
           esc((l.count || 0) + ' 条 · ' + Math.round((l.bytes || 0) / 1024) + 'KB' + (l.oversize ? ' · 超长 ' + l.oversize + ' 条' : '')) + '</span></div>';
       }).join('') + '</div>';
     }
+    out += vNameGen();
     out += '<div class="card"><h3>AI 助手（复制指令 → 粘贴到 DSH 对话）</h3>' +
       '<div class="btnrow"><input id="aiChap" placeholder="章节文件名（AI改稿用，如 v01-c047.md）" style="flex:1 1 14em;min-width:0">' +
       '<button type="button" id="aiGate2" class="sm">生成改稿指令</button>' +
@@ -2051,7 +2225,39 @@ var BUILD = '3.17.0';
     ]) + '</div>';
     return out;
   }
+  function bindWorldExtra() {
+    var mb = $('wzMapBtn');
+    if (mb) mb.addEventListener('click', function () {
+      var names = ((S.data && S.data.world) || []).map(function (w) { return w.name || ''; }).filter(Boolean).join('、');
+      var txt = '请按《小鱼创作台》世界观账本，为本书生成「势力版图结构表」：\n' +
+        '已有设定条目：' + (names || '（无）') + '\n\n' +
+        '要求：1) 列出主要势力（名称/据点/首领/与主角关系）；2) 据点按地理位置排（北/南/东/西/中）；3) 每个势力一句「与主角的对抗或合作可能」；4) 输出 yml 格式的 world 卡片段落，我粘贴回设定页。';
+      copy(txt).then(function (ok) { note(ok ? '地图指令已复制' : '复制失败'); });
+    });
+    var rb = $('wzRankBtn');
+    if (rb) rb.addEventListener('click', function () {
+      var g = ((S.data && S.data.project) || {}).genre || '';
+      var txt = '选题参考任务：请把你关注的免费榜单快照（书名+分类+一句话卖点，从番茄/七猫等公开页面手动复制即可）粘贴给我，我按以下框架做赛道分析：\n' +
+        '本书题材：' + (g || '未填') + '\n\n' +
+        '分析维度：1) 上榜题材与本题材的重合度；2) 卖点公式（身份错位/状态落差/不可逆选择）；3) 我能切入的差异点；4) 建议的黄金三章开局变体。只分析选题方向，不模仿任何作品的具体内容。';
+      copy(txt).then(function (ok) { note(ok ? '选题指令已复制' : '复制失败'); });
+    });
+  }
   function bindTools() {
+    /* 3.18.0 名词生成器：切类目重摇、摇一排、点词条复制。 */
+    Array.prototype.forEach.call(document.querySelectorAll('.nameCat'), function (b) {
+      b.addEventListener('click', function () { S.nameCat = b.getAttribute('data-cat'); render(); });
+    });
+    var gb = $('nameGenBtn');
+    if (gb) gb.addEventListener('click', function () {
+      S.nameGen = { results: genName(S.nameCat, 10) };
+      render();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.namePick'), function (b) {
+      b.addEventListener('click', function () {
+        copy(b.getAttribute('data-nm')).then(function (ok) { note(ok ? '已复制：' + b.getAttribute('data-nm') : '复制失败'); });
+      });
+    });
     var csv = $('btnCsv'); if (csv) csv.addEventListener('click', exportCsv);
     var re = $('btnReindex');
     if (re) re.addEventListener('click', function () {
@@ -2671,6 +2877,7 @@ var BUILD = '3.17.0';
     bindChapters();
     if (S.tab === 'relations') { drawGraph(); bindRelMaint(); }
     if (S.tab === 'search') bindSearch();
+    if (S.tab === 'overview') bindSnow();
     if (S.tab === 'gate') bindGate();
     if (S.tab === 'audit') { bindAudit(); bindTodo(); }
     if (S.tab === 'todo') bindTodo();
@@ -2679,6 +2886,7 @@ var BUILD = '3.17.0';
     if (S.tab === 'style') bindStyle();
     if (S.tab === 'project') bindProj();
     if (S.tab === 'tools') bindTools();
+    if (S.tab === 'world') bindWorldExtra();
     if (S.tab === 'history') bindHistory();
     var q = $('q');
     if (q) {
@@ -2926,6 +3134,7 @@ var BUILD = '3.17.0';
   if (savedTheme === 'light') applyTheme(true);
   try { S.fontScale = Number(localStorage.getItem('xiaoyu.fontScale')) || 1; } catch (e) {}
   try { S.qcDone = JSON.parse(localStorage.getItem('xiaoyu.qcDone') || '{}') || {}; } catch (e) {}
+  try { S.snow = JSON.parse(localStorage.getItem(snowKey()) || '{}') || {}; } catch (e) {}
   try { S.graphZoom = Number(localStorage.getItem('xiaoyu.graphZoom')) || 1; } catch (e) {}
   try { S.todoDone = JSON.parse(localStorage.getItem('xiaoyu.todoDone') || '{}') || {}; } catch (e) {}
   $('btnTheme').addEventListener('click', function () {
