@@ -122,6 +122,8 @@ import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from
 // 0.15.3 本章出场名单：关系图按当前章节过滤节点。
 import { chapterCast, castMatrix } from './lib/cast-core.mjs'
 import { chapterContext } from './lib/chapter-context.mjs'
+import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats } from './lib/chapter-blueprint.mjs'
+import { qualityTrend } from './lib/quality-trend.mjs'
 // 静态体检（check 路由）与 CLI check 同源：直接复用 novel-parse 的检查器。
 import { checkProject } from './lib/novel-parse.mjs'
 // 0.22.0 重计算结果缓存：文件没动就别重算（audit 466ms / check 228ms 全是白烧）。
@@ -2056,6 +2058,37 @@ export async function registerCreatorRoutes(ctx) {
           // 开书九件套：概览/章节/角色/伏笔/关系/时间线/设定/写作风格/索引板。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
           json(res, 200, checkSetup(novelDir))
+          return
+        }
+
+        if (route === 'blueprint' && req.method === 'GET') {
+          // 3.22.0 章节蓝图：一章一查（?chapter=）或全书列表（缺省）。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const ch = url.searchParams.get('chapter')
+          if (ch) json(res, 200, readBlueprint(novelDir, ch) || { chapter: ch.replace(/\.md$/i, ''), none: true })
+          else json(res, 200, { blueprints: listBlueprints(novelDir) })
+          return
+        }
+
+        if (route === 'blueprint' && req.method === 'POST') {
+          // 蓝图三填（goal/conflict/hook）：校验闸在 serializeBlueprint，齐才落盘。
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const packed = serializeBlueprint(body.chapter, body)
+          if (!packed.ok) { json(res, 400, packed); return }
+          const dir = path.join(novelDir, 'blueprints')
+          mkdirSync(dir, { recursive: true })
+          writeFileSync(path.join(dir, packed.chapter + '.yml'), packed.text, 'utf8')
+          invalidateAllCaches()
+          json(res, 200, { ok: true, chapter: packed.chapter, rel: 'blueprints/' + packed.chapter + '.yml' })
+          return
+        }
+
+        if (route === 'quality-trend' && req.method === 'GET') {
+          // 3.22.0 六维质量趋势：爽点/一致性/节奏/钩子/人味/追读力（跨章 + 预警）。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const { value: tr } = cachedResult('quality-trend', 'ttl-' + Math.floor(Date.now() / 30000) + '/' + novelDir, () => qualityTrend(novelDir, null))
+          json(res, 200, tr)
           return
         }
 

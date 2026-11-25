@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.21.1';
+var BUILD = '3.22.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -730,6 +730,7 @@ var BUILD = '3.21.1';
   }
   function vAudit() {
     ensureAudit();
+    ensureQualityTrend();
     var out = '';
     if (S.check && S.check.problems) {
       var ps = S.check.problems;
@@ -743,6 +744,7 @@ var BUILD = '3.21.1';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
+    out += vQualityTrend();
     out += '<div class="card"><h3>全书体检' + (S.auditBusy ? '<span class="badge">计算中…</span>' : '') + '</h3>' +
       '<div class="btnrow"><button type="button" id="btnAuditReport" class="sm">报告落盘到 reports/</button></div>';
     if (!S.audit) out += '<div class="muted">' + (S.auditBusy ? '跨章重复 / 出场 / 章纲兑现分析中…' : '') + '</div>';
@@ -1080,7 +1082,66 @@ var BUILD = '3.21.1';
         return '<div class="row"><span class="v">' + esc(s.title || s.id) + ' — ' + esc(s.hint) + '</span></div>';
       }).join('') + '<div class="muted" style="margin-top:4px">这些线读者视角未知：正文、对话、心理活动都不得提前揭示。</div></div>';
     }
+    out += vBlueprint(d.chapter, S.blueprint && S.blueprint.chapter === d.chapter ? S.blueprint : null);
     return sel + out;
+  }
+  /* 3.22.0 六维质量趋势（webnovel-writer 审查维度）：体检页顶部六线走势。 */
+  function ensureQualityTrend() {
+    if (S.qTrend) return;
+    get('quality-trend', wsQuery()).then(function (d) { S.qTrend = d; if (S.tab === 'audit') render(); }).catch(function () { S.qTrend = { ok: false }; });
+  }
+  function vQualityTrend() {
+    var q = S.qTrend;
+    if (!q) { ensureQualityTrend(); return '<div class="card"><h3>六维质量趋势</h3><div class="muted">计算中…（逐章扫描，首次稍慢）</div></div>'; }
+    if (q.ok === false || !q.chapters) return '';
+    var chs = q.chapters; if (!chs.length) return '';
+    var KEYS = [['human','人味'],['beat','爽点'],['hook','钩子'],['rhythm','节奏'],['consist','一致性'],['pull','追读力']];
+    var COLORS = ['#4b8bf5','#e8a23d','#4bc05a','#b45ccc','#5ac8d8','#e05a5a'];
+    var W = 600, H = 30, rows = KEYS.map(function (k, i) { return k[0]; });
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + (H * KEYS.length) + '" style="width:100%;height:auto;display:block">';
+    KEYS.forEach(function (k, ki) {
+      var y = ki * H + H / 2;
+      var pts = chs.map(function (c, i) {
+        var v = c.dims[k[0]]; if (v === null || v === undefined) return null;
+        return (i / Math.max(1, chs.length - 1) * (W - 40) + 20) + ',' + (y - (v / 100) * (H / 2 - 3));
+      }).filter(Boolean);
+      if (pts.length) svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + COLORS[ki] + '" stroke-width="1.5"/>';
+      svg += '<text x="4" y="' + (y + 3) + '" fill="#8d939c" font-size="9">' + k[1] + '</text>';
+    });
+    svg += '</svg>';
+    var dims = (q.totals && q.totals.dims) || {};
+    var avg = KEYS.map(function (k) { return k[1] + ' ' + (dims[k[0]] != null ? dims[k[0]] : '—'); }).join(' · ');
+    var alerts = (q.alerts || []).slice(0, 5).map(function (a) {
+      return '<div class="row"><span class="v"><span class="pill bad">' + esc(a.stem) + '</span> ' + esc(a.message) + '</span></div>';
+    }).join('');
+    return '<div class="card"><h3>六维质量趋势 <span class="badge">' + chs.length + ' 章</span></h3>' +
+      '<div style="overflow-x:auto">' + svg + '</div>' +
+      '<div class="muted" style="margin-top:4px">全书均值：' + esc(avg) + '</div>' +
+      (alerts ? '<div style="margin-top:6px">' + alerts + '</div>' : '') + '</div>';
+  }
+  /* 3.22.0 蓝图：动笔前三填（goal/conflict/hook），齐才放行 POST。 */
+  function vBlueprint(file, bp) {
+    var b = bp || {}
+    return '<div class="card"><h3>蓝图 <span class="badge">' + esc(file) + '</span>' + (b.goal ? '<span class="pill ok">已填</span>' : '<span class="pill mid">未起笔</span>') + '</h3>' +
+      '<div class="muted" style="margin-bottom:4px">动笔前三填：本章小目标 / 冲突与转折 / 章尾钩子。写完正文再对照兑现。</div>' +
+      '<div class="row"><span class="k">小目标</span><span class="v"><input id="bpGoal" class="editor small" style="width:100%" value="' + esc(b.goal || '') + '" placeholder="例：陈默拿到断刀"></span></div>' +
+      '<div class="row"><span class="k">冲突转折</span><span class="v"><input id="bpConflict" class="editor small" style="width:100%" value="' + esc(b.conflict || '') + '" placeholder="例：追兵封桥 vs 唯一渡口"></span></div>' +
+      '<div class="row"><span class="k">章尾钩子</span><span class="v"><input id="bpHook" class="editor small" style="width:100%" value="' + esc(b.hook || '') + '" placeholder="例：刀身刻着一个不该出现的名字"></span></div>' +
+      '<div class="btnrow"><button type="button" id="bpSave" class="sm pri">保存蓝图</button><span class="muted">三填齐才落盘 blueprints/</span></div></div>';
+  }
+  function ensureBlueprint(file) {
+    if (!S.ws || !file) return;
+    if (S.blueprint && S.blueprint.chapter === file) return;
+    get('blueprint', { path: S.ws, chapter: file }).then(function (d) { S.blueprint = d; if (S.tab === 'context') render(); }).catch(function () {});
+  }
+  function bindBlueprint(file) {
+    var btn = $('bpSave');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      postJson('blueprint', { path: S.ws, chapter: file, goal: $('bpGoal').value, conflict: $('bpConflict').value, hook: $('bpHook').value })
+        .then(function (r) { note('蓝图已保存 ' + (r.rel || '')); S.blueprint = null; ensureBlueprint(file); })
+        .catch(function (e) { note('保存失败：' + ((e && e.message) || e)); });
+    });
   }
   function bindContext() {
     var sel = $('ctxFile');
@@ -2949,7 +3010,7 @@ var BUILD = '3.21.1';
     if (S.tab === 'gate') bindGate();
     if (S.tab === 'audit') { bindAudit(); bindTodo(); }
     if (S.tab === 'todo') bindTodo();
-    if (S.tab === 'context') { ensureCtxPack(S.ctxFile || (S.ctxFile = chapterFileDefault())); bindContext(); }
+    if (S.tab === 'context') { var cf = S.ctxFile || (S.ctxFile = chapterFileDefault()); ensureCtxPack(cf); ensureBlueprint(cf); bindContext(); bindBlueprint(cf); }
     if (S.tab === 'foreshadows') bindFore();
     if (S.tab === 'timeline') bindTimeline();
     if (S.tab === 'style') bindStyle();
