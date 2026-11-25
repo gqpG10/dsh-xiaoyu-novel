@@ -21,7 +21,13 @@ test('入口成对注册：main.key 与 panellist.id 同为 xiaoyu-novel-creator
   assert.match(source, /register\(\{ name: "main", key: PANEL_ID \}/)
   // 3.12.5：宿主总会画 label（不给回落英文名）——必须给函数 label，槽内容只出图标
   // 3.12.5：宿主总会画 label（不给回落英文名）——必须给函数 label，槽内容只出图标
-  assert.ok(source.includes('label: function () { return "小鱼创作台"; }, locale: "xiaoyu-novel"'), '注册必须带函数 label + locale（宿主不给 label 会画英文插件名）')
+  // 3.20.2：对齐官方面板范式——注册 locale 字典（ctx.locale.register(NS,...)），
+  // label 从 t('panel') 取、失败回落中文字面量；裸字面量 label 在走 i18n 的宿主上
+  // 会解析成空，就是「侧边栏只剩图标」第四轮的根因。
+  assert.match(source, /ctx\.locale\.register\(NS,/)
+  assert.match(source, /ctx\.locale\.bind\(NS\)/)
+  assert.match(source, /return tPanel\("panel"\) \|\| "小鱼创作台"/)
+  assert.match(source, /locale: NS, label: function/)
   assert.match(source, /selectPanel === "function"/)
 })
 

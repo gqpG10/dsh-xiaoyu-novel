@@ -121,6 +121,7 @@ import { chapterLedgerHint, ledgerStats } from './lib/ledger-stats.mjs'
 import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from './lib/ledger-clean.mjs'
 // 0.15.3 本章出场名单：关系图按当前章节过滤节点。
 import { chapterCast, castMatrix } from './lib/cast-core.mjs'
+import { chapterContext } from './lib/chapter-context.mjs'
 // 静态体检（check 路由）与 CLI check 同源：直接复用 novel-parse 的检查器。
 import { checkProject } from './lib/novel-parse.mjs'
 // 0.22.0 重计算结果缓存：文件没动就别重算（audit 466ms / check 228ms 全是白烧）。
@@ -2055,6 +2056,19 @@ export async function registerCreatorRoutes(ctx) {
           // 开书九件套：概览/章节/角色/伏笔/关系/时间线/设定/写作风格/索引板。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
           json(res, 200, checkSetup(novelDir))
+          return
+        }
+
+        if (route === 'chapter-context' && req.method === 'GET') {
+          // 3.21.0 每章智能上下文：只给写手「不知道就会写错」的信息（命中角色/
+          // 到期伏笔/信息差警戒），30s TTL 缓存同 cast-matrix 策略。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const stem = url.searchParams.get('chapter') || ''
+          if (stem === '') { json(res, 400, { error: 'chapter required' }); return }
+          const { value: matrix } = cachedResult('cast-matrix', 'ttl-' + Math.floor(Date.now() / 30000), () => castMatrix(novelDir))
+          const rows = (matrix && matrix.rows) || (matrix && matrix.cast) || []
+          const { value: ctxPack } = cachedResult('chapter-context', 'ttl-' + Math.floor(Date.now() / 30000) + '/' + novelDir + '/' + stem, () => chapterContext(novelDir, stem, rows))
+          json(res, 200, ctxPack)
           return
         }
 

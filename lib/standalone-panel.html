@@ -116,11 +116,11 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.20.1';
+var BUILD = '3.21.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
-  var TABS = [['overview','概览'],['project','项目'],['chapters','章节'],['gate','门禁'],['audit','体检'],['todo','待办'],
+  var TABS = [['overview','概览'],['project','项目'],['chapters','章节'],['gate','门禁'],['audit','体检'],['todo','待办'],['context','本章'],
               ['characters','角色'],['foreshadows','伏笔'],['relations','关系'],['timeline','时间线'],
               ['world','设定'],['index','索引'],['style','风格'],
               ['search','搜索'],['tools','工具'],['history','版本']];
@@ -1039,6 +1039,52 @@ var BUILD = '3.20.1';
   function ensureMatrix() {
     if (S.matrix) return;
     get('cast-matrix', wsQuery()).then(function (d) { S.matrix = d; if (S.tab === 'characters') render(); }).catch(function () { S.matrix = { ok: false }; });
+  }
+
+  /* 3.21.0 本章上下文：写手动笔前的一页「不知道就会写错」信息包。
+     数据来自 /api/xiaoyu-novel/chapter-context（命中角色/到期伏笔/信息差警戒）。 */
+  function ensureCtxPack(file) {
+    if (!S.ws || !file) return;
+    if (S.ctxPack && S.ctxPack.chapter === file) return;
+    get('chapter-context', { path: S.ws, chapter: file }).then(function (d) {
+      S.ctxPack = d; if (S.tab === 'context') render();
+    }).catch(function (e) { S.ctxPack = { ok: false, chapter: file, error: String((e && e.message) || e) }; if (S.tab === 'context') render(); });
+  }
+  function chapterFileDefault() {
+    var fs = (S.data && S.data.files) || (S.matrix && S.matrix.files) || [];
+    return fs.length ? fs[fs.length - 1] : '';
+  }
+  function vContext() {
+    var files = (S.data && S.data.files) || (S.matrix && S.matrix.files) || [];
+    var sel = '<div class="card"><h3>本章上下文</h3><div class="btnrow"><select id="ctxFile" class="sm">' +
+      files.map(function (f) { return '<option value="' + esc(f) + '"' + (f === S.ctxFile ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join('') +
+      '</select><span class="muted">写这一章前先看这里：只列「不知道就会写错」的信息</span></div></div>';
+    var d = S.ctxPack;
+    if (!d) return sel + '<div class="card"><div class="muted">加载中…</div></div>';
+    if (d.ok === false) return sel + '<div class="card"><div class="err">读取失败：' + esc(d.error || '?') + '</div></div>';
+    var st = d.stats || {};
+    var out = '<div class="card"><h3>本章上下文 <span class="badge">' + esc(d.chapter) + '</span></h3>' +
+      rows([['命中角色', (d.cast || []).join('、') || '（无）'], ['伏笔', (st.dueN || 0) + ' 到期 · ' + (st.warmN || 0) + ' 预热'], ['警戒', (st.secretN || 0) + ' 条信息差']]) + '</div>';
+    if ((d.foreshadows && d.foreshadows.due || []).length) {
+      out += '<div class="card"><h3>本章必须处理 <span class="pill bad">到期伏笔</span></h3>' + d.foreshadows.due.map(function (f) {
+        return '<div class="row"><span class="v">' + esc(f.title || f.id) + '<span class="pill">计划回收 ' + esc(f.expected || '?') + '</span>' + (f.status === 'overdue' ? '' : '') + '</span></div>';
+      }).join('') + '</div>';
+    }
+    if ((d.foreshadows && d.foreshadows.warm || []).length) {
+      out += '<div class="card"><h3>背景记得（近埋伏笔）</h3>' + d.foreshadows.warm.map(function (f) {
+        return '<div class="row"><span class="v">' + esc(f.title || f.id) + '<span class="muted"> ' + esc(f.planted) + ' 埋</span></span></div>';
+      }).join('') + '</div>';
+    }
+    if ((d.secrets || []).length) {
+      out += '<div class="card"><h3>泄底警戒 <span class="pill bad">正文禁提</span></h3>' + d.secrets.map(function (s) {
+        return '<div class="row"><span class="v">' + esc(s.title || s.id) + ' — ' + esc(s.hint) + '</span></div>';
+      }).join('') + '<div class="muted" style="margin-top:4px">这些线读者视角未知：正文、对话、心理活动都不得提前揭示。</div></div>';
+    }
+    return sel + out;
+  }
+  function bindContext() {
+    var sel = $('ctxFile');
+    if (sel) sel.addEventListener('change', function () { S.ctxPack = null; ensureCtxPack(sel.value); render(); });
   }
 
   /* 角色出场热力：3.16.1 起优先用 cast-matrix（出场章数，秒出）；
@@ -2890,7 +2936,7 @@ var BUILD = '3.20.1';
     if (S.genEd) { v.innerHTML = vGenEd(); decorateCards(); bindGenEd(); return; }
     if (S.genView) { v.innerHTML = vGenView(); decorateCards(); var ob = $('ovBack'); if (ob) ob.addEventListener('click', function () { S.genView = null; render(); }); return; }
     if (S.reader) { v.innerHTML = vReader(); decorateCards(); bindReader(); return; }
-    var fns = { overview: vOverview, chapters: vChapters, gate: vGate, audit: vAudit,
+    var fns = { overview: vOverview, chapters: vChapters, gate: vGate, audit: vAudit, context: vContext,
                 characters: vCharacters, foreshadows: vForeshadows, relations: vRelations, todo: vTodo,
                 timeline: vTimeline, world: vWorld, index: vIndex, style: vStyle,
                 project: vProject, search: vSearch, tools: vTools, history: vHistory };
@@ -2903,6 +2949,7 @@ var BUILD = '3.20.1';
     if (S.tab === 'gate') bindGate();
     if (S.tab === 'audit') { bindAudit(); bindTodo(); }
     if (S.tab === 'todo') bindTodo();
+    if (S.tab === 'context') { ensureCtxPack(S.ctxFile || (S.ctxFile = chapterFileDefault())); bindContext(); }
     if (S.tab === 'foreshadows') bindFore();
     if (S.tab === 'timeline') bindTimeline();
     if (S.tab === 'style') bindStyle();
