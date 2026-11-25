@@ -2,7 +2,13 @@
 
 [中文](README.md) | English
 
-**Xiaoyu** literally means "the brush" — in *Xiaoyu Zhuan* (小鱼传, "The Biography of the Brush"), Han Yu wrote a writing brush as a courtier with a fief and a title. dsh-xiaoyu-novel fits that brush into DSH (DeepSeek Harness): **a brush that manages a crew of helpers and guards a stack of manuscripts** — a web-novel writing assistant plugin, fully original, released under MIT.
+**Xiaoyu** (小鱼) is a pen that keeps watch over your manuscript.
+
+The name is the author's own indulgence: writers know it is never inspiration that does the work, but the pen, gripped until it turns hot. So the pen got a name — Xiaoyu — plus a crew of helpers and a stack of drafts, so it can fuss over you too.
+
+(A correction in passing: what Han Yu wrote was *Mao Ying Zhuan* (毛颖传), personifying **the writing brush** as "Mao Ying", granted the title Guan Chengzi. Xiaoyu has nothing to do with it — it is this plugin's own name. Misattributed lore is lore the author will not carry.)
+
+dsh-xiaoyu-novel fits that pen into DSH (DeepSeek Harness): **a pen that manages a crew of helpers and guards a stack of manuscripts** — a web-novel writing assistant plugin, fully original, released under MIT.
 
 Once installed, the main agent becomes the **editor-in-chief of your novel**: it runs a seven-phase workflow with a seven-step writing method (with a per-chapter de-AI gate), delegating outlining, drafting, de-AI polishing, review, lore-keeping and research to six helpers who each carry only their own tools. The whole novel is a structured markdown/YAML `novel/` directory in the workspace (character cards, foreshadowing state machine, timeline, clue board, narrative memory) — agents read and write files directly, **no database, no API layer**. "Show all unresolved foreshadowing" is one line of grep.
 
@@ -180,4 +186,4 @@ At startup the plugin reads the host version and picks the delegation-line shape
 
 ## Acknowledgments
 
-- "Xiaoyu" comes from Han Yu's *Xiaoyu Zhuan* (小鱼传): a writing brush personified, with a fief and a title.
+- "Xiaoyu" is this plugin's own name, meaning simply "the pen". It was once misremembered as coming from a nonexistent "Xiaoyu Zhuan" by Han Yu (the actual text is *Mao Ying Zhuan*, personifying the brush as Mao Ying). Corrected here — a name stated right is a name halfway written.
