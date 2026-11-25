@@ -124,6 +124,8 @@ import { chapterCast, castMatrix } from './lib/cast-core.mjs'
 import { chapterContext } from './lib/chapter-context.mjs'
 import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats } from './lib/chapter-blueprint.mjs'
 import { qualityTrend } from './lib/quality-trend.mjs'
+import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
+import { scanAttributeConflicts, scanTimelineConflicts } from './lib/consistency-core.mjs'
 // 静态体检（check 路由）与 CLI check 同源：直接复用 novel-parse 的检查器。
 import { checkProject } from './lib/novel-parse.mjs'
 // 0.22.0 重计算结果缓存：文件没动就别重算（audit 466ms / check 228ms 全是白烧）。
@@ -2058,6 +2060,48 @@ export async function registerCreatorRoutes(ctx) {
           // 开书九件套：概览/章节/角色/伏笔/关系/时间线/设定/写作风格/索引板。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
           json(res, 200, checkSetup(novelDir))
+          return
+        }
+
+        if (route === 'bible-usage' && req.method === 'GET') {
+          // 3.23.0 活设定集：全部设定按最近使用排序（没用过的沉底）。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          json(res, 200, { usage: bibleUsage(novelDir) })
+          return
+        }
+
+        if (route === 'bible-touch' && req.method === 'POST') {
+          // 智能上下文引用设定时盖章（幂等，当天只写一次）。
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          json(res, 200, touchBible(novelDir, body.file))
+          return
+        }
+
+        if (route === 'chapter-memory' && req.method === 'POST') {
+          // 3.23.0 章后记忆：定稿时生成摘要落盘 memory/<章>.yml。
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const stem = String(body.chapter || '').replace(/\.md$/i, '')
+          if (!/^[A-Za-z0-9_-]+$/.test(stem)) { json(res, 400, { ok: false, error: '章名非法' }); return }
+          const raw = readFileSync(path.join(novelDir, 'chapters', stem + '.md'), 'utf8')
+          const s = summarizeChapter(raw)
+          if (!s.ok) { json(res, 400, s); return }
+          const dir = path.join(novelDir, 'memory')
+          mkdirSync(dir, { recursive: true })
+          writeFileSync(path.join(dir, stem + '.yml'), s.summary, 'utf8')
+          json(res, 200, { ok: true, chapter: stem, rel: 'memory/' + stem + '.yml', summary: s.summary })
+          return
+        }
+
+        if (route === 'consistency' && req.method === 'GET') {
+          // 3.23.0 连续性体检：角色属性矛盾 + 时间倒流，合流进体检页。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const { value: cons } = cachedResult('consistency', 'ttl-' + Math.floor(Date.now() / 30000) + '/' + novelDir, () => {
+            const problems = scanAttributeConflicts(novelDir).concat(scanTimelineConflicts(novelDir))
+            return { problems }
+          })
+          json(res, 200, cons)
           return
         }
 

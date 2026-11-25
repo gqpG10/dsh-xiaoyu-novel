@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.22.0';
+var BUILD = '3.23.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -731,6 +731,7 @@ var BUILD = '3.22.0';
   function vAudit() {
     ensureAudit();
     ensureQualityTrend();
+    ensureConsistency();
     var out = '';
     if (S.check && S.check.problems) {
       var ps = S.check.problems;
@@ -744,6 +745,7 @@ var BUILD = '3.22.0';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
+    out += vConsistency();
     out += vQualityTrend();
     out += '<div class="card"><h3>全书体检' + (S.auditBusy ? '<span class="badge">计算中…</span>' : '') + '</h3>' +
       '<div class="btnrow"><button type="button" id="btnAuditReport" class="sm">报告落盘到 reports/</button></div>';
@@ -1072,6 +1074,9 @@ var BUILD = '3.22.0';
         return '<div class="row"><span class="v">' + esc(f.title || f.id) + '<span class="pill">计划回收 ' + esc(f.expected || '?') + '</span>' + (f.status === 'overdue' ? '' : '') + '</span></div>';
       }).join('') + '</div>';
     }
+    if (d.prevMemory) {
+      out += '<div class="card"><h3>前情 <span class="badge">' + esc(d.prevMemory.chapter) + '</span></h3><pre style="white-space:pre-wrap;margin:0;font:inherit;color:#8d939c">' + esc(d.prevMemory.text) + '</pre></div>';
+    }
     if ((d.foreshadows && d.foreshadows.warm || []).length) {
       out += '<div class="card"><h3>背景记得（近埋伏笔）</h3>' + d.foreshadows.warm.map(function (f) {
         return '<div class="row"><span class="v">' + esc(f.title || f.id) + '<span class="muted"> ' + esc(f.planted) + ' 埋</span></span></div>';
@@ -1084,6 +1089,20 @@ var BUILD = '3.22.0';
     }
     out += vBlueprint(d.chapter, S.blueprint && S.blueprint.chapter === d.chapter ? S.blueprint : null);
     return sel + out;
+  }
+  /* 3.23.0 连续性体检：角色属性矛盾 + 时间倒流（novel-audit 范式）。 */
+  function ensureConsistency() {
+    if (S.consistency) return;
+    get('consistency', wsQuery()).then(function (d) { S.consistency = d; if (S.tab === 'audit') render(); }).catch(function () { S.consistency = { ok: false }; });
+  }
+  function vConsistency() {
+    var c = S.consistency;
+    if (!c) { ensureConsistency(); return ''; }
+    if (c.ok === false || !Array.isArray(c.problems)) return '';
+    if (!c.problems.length) return '<div class="card"><h3>连续性体检 <span class="pill ok">零矛盾 ✓</span></h3><div class="muted">角色属性与时间线无冲突。</div></div>';
+    return '<div class="card"><h3>连续性体检 <span class="pill bad">' + c.problems.length + ' 项</span></h3>' + c.problems.slice(0, 15).map(function (p) {
+      return '<div class="row"><span class="v"><span class="pill bad">' + esc(p.kind) + '</span> ' + esc((p.chapter ? p.chapter + '：' : '') + p.message) + '</span></div>';
+    }).join('') + '</div>';
   }
   /* 3.22.0 六维质量趋势（webnovel-writer 审查维度）：体检页顶部六线走势。 */
   function ensureQualityTrend() {
@@ -1127,7 +1146,7 @@ var BUILD = '3.22.0';
       '<div class="row"><span class="k">小目标</span><span class="v"><input id="bpGoal" class="editor small" style="width:100%" value="' + esc(b.goal || '') + '" placeholder="例：陈默拿到断刀"></span></div>' +
       '<div class="row"><span class="k">冲突转折</span><span class="v"><input id="bpConflict" class="editor small" style="width:100%" value="' + esc(b.conflict || '') + '" placeholder="例：追兵封桥 vs 唯一渡口"></span></div>' +
       '<div class="row"><span class="k">章尾钩子</span><span class="v"><input id="bpHook" class="editor small" style="width:100%" value="' + esc(b.hook || '') + '" placeholder="例：刀身刻着一个不该出现的名字"></span></div>' +
-      '<div class="btnrow"><button type="button" id="bpSave" class="sm pri">保存蓝图</button><span class="muted">三填齐才落盘 blueprints/</span></div></div>';
+      '<div class="btnrow"><button type="button" id="bpSave" class="sm pri">保存蓝图</button><button type="button" id="bpMemo" class="sm">定稿·生成章记忆</button><span class="muted">三填齐才落盘 blueprints/</span></div></div>';
   }
   function ensureBlueprint(file) {
     if (!S.ws || !file) return;
@@ -1135,6 +1154,12 @@ var BUILD = '3.22.0';
     get('blueprint', { path: S.ws, chapter: file }).then(function (d) { S.blueprint = d; if (S.tab === 'context') render(); }).catch(function () {});
   }
   function bindBlueprint(file) {
+    var memo = $('bpMemo');
+    if (memo) memo.addEventListener('click', function () {
+      postJson('chapter-memory', { path: S.ws, chapter: file })
+        .then(function (r) { note('章记忆已存 ' + (r.rel || '') + '：下章「前情」自动携带'); })
+        .catch(function (e) { note('生成失败：' + ((e && e.message) || e)); });
+    });
     var btn = $('bpSave');
     if (!btn) return;
     btn.addEventListener('click', function () {
