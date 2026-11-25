@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.16.1';
+var BUILD = '3.17.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -138,7 +138,7 @@ var BUILD = '3.16.1';
             proj:null,
             trash:null, ledger:null, slim:null,
             git:null, gitLog:null, versionsFile:'', versions:null,
-            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[] };
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[], sprint:null, qcDone:{} };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -273,12 +273,26 @@ var BUILD = '3.16.1';
       ' <button type="button" id="sessReset" class="sm">重新计时</button></span></div>';
   }
 
+  /* 3.17.0 写作冲刺（借鉴 obsidian-writing-studio 的 sprints）：25 分钟番茄钟，
+     冲刺起点记当日字数基线，结束算这一波写了多少。纯前端计时。 */
+  function sprintRow() {
+    var sp = S.sprint;
+    if (!sp || !sp.running) {
+      return '<div class="row"><span class="k">写作冲刺</span><span class="v">' +
+        '<select id="spLen" style="width:5em"><option value="15">15 分钟</option><option value="25" selected>25 分钟</option><option value="45">45 分钟</option></select>' +
+        ' <button type="button" id="spStart" class="sm pri">开冲</button></span></div>';
+    }
+    var left = Math.max(0, Math.ceil((sp.end - Date.now()) / 1000));
+    var mm = Math.floor(left / 60), ss = left % 60;
+    return '<div class="row"><span class="k">冲刺中</span><span class="v"><span id="spClock" style="font-weight:700;color:#e5c063">' + mm + ':' + (ss < 10 ? '0' : '') + ss + '</span>' +
+      ' <button type="button" id="spStop" class="sm warn">结束</button></span></div>';
+  }
   function goalHtml() {
     var goal = 4000;
     try { goal = Number(localStorage.getItem('xiaoyu.dailyGoal')) || 4000; } catch (e) {}
     var today = Math.max(0, progToday() || 0);
     var pct = Math.min(100, Math.round(today / goal * 100));
-    return sessRow() + '<div class="row"><span class="k">日更目标</span><span class="v" style="display:flex;gap:8px;align-items:center">' +
+    return sessRow() + sprintRow() + '<div class="row"><span class="k">日更目标</span><span class="v" style="display:flex;gap:8px;align-items:center">' +
       '<input id="goalInput" type="number" value="' + goal + '" style="width:5em">' +
       '<div class="goalbar"><div style="width:' + pct + '%"></div></div>' +
       '<span class="muted">' + today + '/' + goal + '（' + pct + '%）</span></span></div>';
@@ -490,7 +504,28 @@ var BUILD = '3.16.1';
       var bg = col === 'good' ? '#3fbf7f' : (col === 'mid' ? '#e5c063' : '#ef5b5b');
       return '<div title="' + esc((meta[f] && meta[f].title) || f) + '：' + g.human + '" style="flex:1 1 0;min-width:2px;height:' + Math.max(4, Math.round(g.human)) + '%;background:' + bg + ';border-radius:2px"></div>';
     }).join('') + '</div><div class="muted">逐章人味走势（绿≥及格线 · 黄接近 · 红不及格）</div>';
-    return '<div class="card"><h3>门禁总览 <span class="badge">及格线 ' + esc(S.gates.passMark) + '</span></h3>' + rows([
+    /* 3.17.0 质检进度矩阵（借鉴 oh-story 的逐章质检记录）：
+       行=章、列=检查项；门禁/定稿自动取值，一键修/读者评审/审校清单手动勾选存本地。 */
+    function qcKey(f, c) { return 'qc.' + f + '.' + c; }
+    var qcCols = [['gate', '门禁'], ['fix', '一键修'], ['read', '读者评审'], ['audit', '审校清单'], ['final', '定稿']];
+    var chs2 = (S.data && S.data.chapters || []).slice(-25);
+    var qcHtml = '<div class="card"><h3>质检进度矩阵 <span class="badge">最近 ' + chs2.length + ' 章</span></h3>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<tr><th style="text-align:left;padding:3px 4px">章节</th>' + qcCols.map(function (c) { return '<th style="padding:3px 2px;font-weight:600;color:#8d939c">' + c[1] + '</th>'; }).join('') + '</tr>' +
+      chs2.map(function (c) {
+        var g = (S.gates.gates || {})[c.file];
+        var gateCell = g && g.ok ? (g.human >= S.gates.passMark ? '<span style="color:#3fbf7f">✓ ' + g.human + '</span>' : '<span style="color:#ef5b5b">' + g.human + '</span>') : '—';
+        var finalCell = c.status === 'accepted' ? '<span style="color:#3fb9f5">✓</span>' : '';
+        return '<tr><td style="padding:3px 4px;max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc((c.title || c.file) + '') + '</td>' +
+          '<td style="text-align:center">' + gateCell + '</td>' +
+          qcCols.slice(1, 4).map(function (cc) {
+            var k = qcKey(c.file, cc[0]);
+            return '<td style="text-align:center"><input type="checkbox" class="qcChk" data-k="' + esc(k) + '"' + (S.qcDone[k] ? ' checked' : '') + '></td>';
+          }).join('') +
+          '<td style="text-align:center">' + finalCell + '</td></tr>';
+      }).join('') + '</table>' +
+      '<div class="muted" style="margin-top:4px">门禁/定稿自动；一键修/读者评审/审校清单勾选存本地（走 xiaoyu-qu-ai-wei 等技能后回来勾）。</div></div>';
+    return qcHtml + '<div class="card"><h3>门禁总览 <span class="badge">及格线 ' + esc(S.gates.passMark) + '</span></h3>' + rows([
       ['状态', S.gates.python === false ? 'python3 缺失，分数不可用' : '正常'],
       ['章节', (S.gates.total || 0) + ' 章'],
       ['不及格', (S.gates.failed || 0) + ' 章'],
@@ -512,6 +547,13 @@ var BUILD = '3.16.1';
   }
 
   function bindGate() {
+    /* 3.17.0 质检矩阵勾选：不重渲染（重渲染会丢表格），只落本地。 */
+    Array.prototype.forEach.call(document.querySelectorAll('.qcChk'), function (ck) {
+      ck.addEventListener('change', function () {
+        S.qcDone[ck.getAttribute('data-k')] = ck.checked;
+        try { localStorage.setItem('xiaoyu.qcDone', JSON.stringify(S.qcDone)); } catch (e) {}
+      });
+    });
     var pm = $('pmSave');
     if (pm) pm.addEventListener('click', function () {
       var v = Number(($('pmInput') || {}).value);
@@ -2722,6 +2764,16 @@ var BUILD = '3.16.1';
       note('已重新计时');
       loadState();
     });
+    /* 3.17.0 写作冲刺：25 分钟番茄钟，结束统计这一波字数。 */
+    var spS = $('spStart');
+    if (spS) spS.addEventListener('click', function () {
+      var len = Math.max(5, Number(($('spLen') || {}).value) || 25);
+      S.sprint = { running: true, end: Date.now() + len * 60000, base: progToday() || 0 };
+      note('冲刺开始：' + len + ' 分钟，冲！');
+      render();
+    });
+    var spX = $('spStop');
+    if (spX) spX.addEventListener('click', function () { endSprint(); });
     var gi = $('goalInput');
     if (gi) {
       /* 边打字边落盘：值实时进 localStorage，任何异步 render 重建出来的输入框
@@ -2873,6 +2925,7 @@ var BUILD = '3.16.1';
   try { savedTheme = localStorage.getItem('xiaoyu.theme') || ''; } catch (e) {}
   if (savedTheme === 'light') applyTheme(true);
   try { S.fontScale = Number(localStorage.getItem('xiaoyu.fontScale')) || 1; } catch (e) {}
+  try { S.qcDone = JSON.parse(localStorage.getItem('xiaoyu.qcDone') || '{}') || {}; } catch (e) {}
   try { S.graphZoom = Number(localStorage.getItem('xiaoyu.graphZoom')) || 1; } catch (e) {}
   try { S.todoDone = JSON.parse(localStorage.getItem('xiaoyu.todoDone') || '{}') || {}; } catch (e) {}
   $('btnTheme').addEventListener('click', function () {
@@ -2888,10 +2941,25 @@ var BUILD = '3.16.1';
     upmsg('自检已发送（服务端 xiaoyu-diag.log）');
   });
 
+  function endSprint(done) {
+    var sp = S.sprint;
+    S.sprint = null;
+    if (!sp) { render(); return; }
+    var gain = Math.max(0, (progToday() || 0) - sp.base);
+    if (done) note('冲完了！这一波 ' + gain + ' 字，休息五分钟吧 🌸');
+    else note('冲刺结束：' + gain + ' 字');
+    render();
+  }
   setInterval(function () {
     var el = $('sessTime');
     if (el && S.sess) el.textContent = Math.max(0, Math.floor((Date.now() - S.sess.start) / 60000));
-  }, 30000);
+    var spc = $('spClock');
+    if (spc && S.sprint && S.sprint.running) {
+      var left = Math.max(0, Math.ceil((S.sprint.end - Date.now()) / 1000));
+      spc.textContent = Math.floor(left / 60) + ':' + (left % 60 < 10 ? '0' : '') + (left % 60);
+      if (left <= 0) endSprint(true);
+    }
+  }, 1000);
   function pingOnline() {
     fetch(API + 'update-check').then(function () {
       var o = document.getElementById('offline');
