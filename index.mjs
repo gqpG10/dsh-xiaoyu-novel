@@ -126,6 +126,8 @@ import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats } fro
 import { qualityTrend } from './lib/quality-trend.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
 import { scanAttributeConflicts, scanTimelineConflicts } from './lib/consistency-core.mjs'
+import { complianceScan } from './lib/compliance-core.mjs'
+import { scanRadar } from './lib/trend-radar.mjs'
 // 静态体检（check 路由）与 CLI check 同源：直接复用 novel-parse 的检查器。
 import { checkProject } from './lib/novel-parse.mjs'
 // 0.22.0 重计算结果缓存：文件没动就别重算（audit 466ms / check 228ms 全是白烧）。
@@ -2105,6 +2107,26 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'compliance' && req.method === 'GET') {
+          // 3.24.0 合规体检：三级敏感词逐章扫描（发番茄/起点前最后一道闸）。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const { value: comp } = cachedResult('compliance', novelFingerprint(novelDir), () => complianceScan(novelDir))
+          json(res, 200, comp)
+          return
+        }
+
+        if (route === 'radar' && req.method === 'GET') {
+          // 3.24.0 题材雷达：番茄公开榜单扫描（失败回落本地快照，不阻塞）。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          try {
+            const radar = await scanRadar(novelDir)
+            json(res, 200, radar)
+          } catch (e) {
+            json(res, 200, { ok: false, error: String((e && e.message) || e) })
+          }
+          return
+        }
+
         if (route === 'blueprint' && req.method === 'GET') {
           // 3.22.0 章节蓝图：一章一查（?chapter=）或全书列表（缺省）。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2210,7 +2232,7 @@ export async function registerCreatorRoutes(ctx) {
           const book = loadProgress()[novelDir] || {}
           // 3.7.1: __base/__last 是非日期键，days 只取真日期
           const keys = Object.keys(book).filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort()
-          const days = keys.slice(-30).map((date) => ({ date, words: book[date] }))
+          const days = keys.slice(-120).map((date) => ({ date, words: book[date] }))
           const today = days.find((d) => d.date === todayKey())
           const before = days.filter((d) => d.date !== todayKey()).pop() || null
           // 3.7.1: 基线法今日新增——只算比上次基线「字数变多」的章，新章全算

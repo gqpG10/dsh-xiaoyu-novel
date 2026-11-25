@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.23.0';
+var BUILD = '3.24.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -255,6 +255,21 @@ var BUILD = '3.23.0';
     var scored = Object.keys(S.gates.gates || {}).map(function (k) { return (S.gates.gates || {})[k]; }).filter(function (g) { return g && g.ok; });
     if (!scored.length) return '';
     return String(Math.round(scored.reduce(function (a, g) { return a + g.human; }, 0) / scored.length * 10) / 10);
+  }
+  /* 3.24.0 写作热力格子（GitHub 贡献格样式）：概览页 120 天格 + 连更天数。 */
+  function heatGrid() {
+    var days = (S.progress && S.progress.days) || [];
+    if (days.length < 2) return '';
+    var max = Math.max.apply(null, days.map(function (d) { return d.words || 0; })) || 1;
+    var cells = days.map(function (d) {
+      var v = d.words || 0;
+      var lv = v === 0 ? 0 : (v < max * 0.25 ? 1 : (v < max * 0.5 ? 2 : (v < max * 0.75 ? 3 : 4)));
+      var bg = ['#23252b', '#2d4a2d', '#3f7a3f', '#5aa85a', '#7fd67f'][lv];
+      return '<div style="width:11px;height:11px;border-radius:2px;background:' + bg + '" title="' + esc(d.date) + '：' + v + ' 字"></div>';
+    }).join('');
+    return '<div class="card"><h3>写作热力 <span class="badge">近 ' + days.length + ' 天 · 连更 ' + streakDays() + ' 天</span></h3>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:3px">' + cells + '</div>' +
+      '<div class="muted" style="margin-top:4px">绿格子=当天有字数记录（越深越多）。断更日是深灰。</div></div>';
   }
   function weekBars() {
     var days = (S.progress && S.progress.days) || [];
@@ -435,7 +450,7 @@ var BUILD = '3.23.0';
         (S.gates && gateAvg() !== '' ? ' · 人味 ' + gateAvg() : '') + '</span>' : '';
       return '<button type="button" class="wsbtn' + (cur ? ' cur' : '') + '" data-ws="' + esc(w.path) + '">' +
         esc(w.name || w.path) + (cur ? '<span class="pill good">当前</span>' : '') + '<br>' + meta + '</button>';
-    }).join('') || '<div class="muted">（无）</div>') + weekBars() + '</div>';
+    }).join('') || '<div class="muted">（无）</div>') + weekBars() + '</div>' + heatGrid();
     return setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
       ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
@@ -516,6 +531,7 @@ var BUILD = '3.23.0';
 
   function vGate() {
     ensureTrend();
+    ensureCompliance();
     if (S.gatesErr) return '<div class="err">门禁读取失败：' + esc(S.gatesErr) + '</div>';
     if (!S.gates) return '<div class="note">正在计算门禁分…（全本逐章分析，稍等几秒）</div>';
     var names = Object.keys(S.gates.gates || {}).sort(function (a, b) {
@@ -524,6 +540,7 @@ var BUILD = '3.23.0';
     });
     var meta = {};
     (S.data && S.data.chapters || []).forEach(function (c) { meta[c.file] = c; });
+    var complianceCard = vCompliance();
     var passRow = '<div class="row"><span class="k">及格线</span><span class="v">' +
       '<input id="pmInput" type="number" min="0" max="100" value="' + esc(S.gates.passMark) + '" style="width:5em"> ' +
       '<button type="button" id="pmSave" class="sm">保存</button></span></div>';
@@ -556,7 +573,7 @@ var BUILD = '3.23.0';
           '<td style="text-align:center">' + finalCell + '</td></tr>';
       }).join('') + '</table>' +
       '<div class="muted" style="margin-top:4px">门禁/定稿自动；一键修/读者评审/审校清单勾选存本地（走 xiaoyu-qu-ai-wei 等技能后回来勾）。</div></div>';
-    return qcHtml + '<div class="card"><h3>门禁总览 <span class="badge">及格线 ' + esc(S.gates.passMark) + '</span></h3>' + rows([
+    return complianceCard + qcHtml + '<div class="card"><h3>门禁总览 <span class="badge">及格线 ' + esc(S.gates.passMark) + '</span></h3>' + rows([
       ['状态', S.gates.python === false ? 'python3 缺失，分数不可用' : '正常'],
       ['章节', (S.gates.total || 0) + ' 章'],
       ['不及格', (S.gates.failed || 0) + ' 章'],
@@ -1089,6 +1106,47 @@ var BUILD = '3.23.0';
     }
     out += vBlueprint(d.chapter, S.blueprint && S.blueprint.chapter === d.chapter ? S.blueprint : null);
     return sel + out;
+  }
+  /* 3.24.0 合规体检（sumeru 三级敏感词范式）：门禁页发布前最后一道闸。 */
+  function ensureCompliance() {
+    if (S.compliance) return;
+    get('compliance', wsQuery()).then(function (d) { S.compliance = d; if (S.tab === 'gate' || S.tab === 'audit') render(); }).catch(function () { S.compliance = { ok: false }; });
+  }
+  function vCompliance() {
+    var c = S.compliance;
+    if (!c) { ensureCompliance(); return ''; }
+    if (c.ok === false || !c.totals) return '';
+    var t = c.totals;
+    if (!t.hits) return '<div class="card"><h3>合规体检 <span class="pill ok">零命中 ✓</span></h3><div class="muted">三级词库扫描 ' + t.chapters + ' 章无敏感命中。</div></div>';
+    var levelCls = { error: 'bad', warn: 'mid', info: '' };
+    var rows = (c.chapters || []).slice(0, 8).map(function (ch) {
+      return '<div class="row"><span class="k">' + esc(ch.file) + ' <span class="badge">' + ch.hitCount + '</span></span><span class="v">' +
+        ch.hits.slice(0, 3).map(function (h) {
+          return '<span class="pill ' + levelCls[h.level] + '">' + esc(h.word) + '</span> <span class="muted">' + esc(h.context) + '</span>';
+        }).join('<br>') + '</span></div>';
+    }).join('');
+    return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
+      '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
+  }
+  /* 3.24.0 题材雷达（fanqie-radar 范式）：项目页榜单聚合。 */
+  function ensureRadar() {
+    if (S.radar) return;
+    get('radar', wsQuery()).then(function (d) { S.radar = d; if (S.tab === 'project') render(); }).catch(function () { S.radar = { ok: false }; });
+  }
+  function vRadar() {
+    var r = S.radar;
+    if (!r) { ensureRadar(); return '<div class="card"><h3>题材雷达</h3><div class="muted">拉取榜单中…（约 10 秒，失败回落上次快照）</div></div>'; }
+    if (r.ok === false) return '<div class="card"><h3>题材雷达</h3><div class="err">' + esc(r.error || '不可达') + '</div></div>';
+    var cats = (r.categories || []).slice(0, 10);
+    if (!cats.length) return '';
+    var maxN = cats[0].count || 1;
+    var rows = cats.map(function (c) {
+      var w = Math.round(c.count / maxN * 90);
+      return '<div class="row"><span class="k">' + esc(c.category) + '</span><span class="v"><span style="display:inline-block;height:8px;width:' + w + '%;background:#4b8bf5;border-radius:2px;vertical-align:middle"></span> <span class="muted">' + c.count + ' 本' + (c.sample && c.sample.length ? ' · ' + esc(c.sample[0]) : '') + '</span></span></div>';
+    }).join('');
+    return '<div class="card"><h3>题材雷达 <span class="badge">' + (r.live ? '实时' : '快照') + ' · ' + esc(String(r.at || '').slice(0, 10)) + '</span>' +
+      ' <button type="button" id="radarRefresh" class="sm">刷新</button></h3>' + rows +
+      '<div class="muted" style="margin-top:4px">番茄公开榜单聚合，选题参考。断网时显示上次快照。</div></div>';
   }
   /* 3.23.0 连续性体检：角色属性矛盾 + 时间倒流（novel-audit 范式）。 */
   function ensureConsistency() {
@@ -2194,9 +2252,11 @@ var BUILD = '3.23.0';
       '<div class="row"><span class="k">模式</span><span class="v"><select id="pMode" style="width:100%">' + modeOpts + '</select></span></div>' +
       '<div class="row"><span class="k">简介</span><span class="v"><textarea id="pDesc" class="small" style="width:100%">' + esc(v.description || '') + '</textarea></span></div>' +
       '<div class="btnrow"><button type="button" id="projSave" class="sm pri">保存</button>' +
-      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vBeats();
+      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vRadar() + vBeats();
   }
   function bindProj() {
+    var rf = $('radarRefresh');
+    if (rf) rf.addEventListener('click', function () { S.radar = null; ensureRadar(); render(); });
     var bs = $('beatsSave');
     if (bs) bs.addEventListener('click', function () {
       var files = Array.prototype.map.call(document.querySelectorAll('.beatFile'), function (s) { return s.value; });
