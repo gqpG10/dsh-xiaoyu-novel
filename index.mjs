@@ -120,7 +120,7 @@ import { chapterLedgerHint, ledgerStats } from './lib/ledger-stats.mjs'
 // 0.16.0 清账本：超长条目压成结论（明细外置）、超期伏笔升推进，一键可撤销。
 import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from './lib/ledger-clean.mjs'
 // 0.15.3 本章出场名单：关系图按当前章节过滤节点。
-import { chapterCast } from './lib/cast-core.mjs'
+import { chapterCast, castMatrix } from './lib/cast-core.mjs'
 // 静态体检（check 路由）与 CLI check 同源：直接复用 novel-parse 的检查器。
 import { checkProject } from './lib/novel-parse.mjs'
 // 0.22.0 重计算结果缓存：文件没动就别重算（audit 466ms / check 228ms 全是白烧）。
@@ -2747,18 +2747,11 @@ function styleRegisterGroup(register) {
           // 一次算全书各章出场角色，带 chapterCast 的 mtime 缓存，二次请求秒回。
           try {
             const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
-            const snap = parseStateSnapshot(novelDir, { lite: true })
-            const files = (snap.chapters || []).map((c) => c.file)
-            const names = (snap.characters || []).map((c) => String(c.name || '').trim()).filter(Boolean)
-            const cells = {}
-            for (const name of names) cells[name] = []
-            const fileIdx = {}
-            files.forEach((f, i) => { fileIdx[f] = i })
-            for (const file of files) {
-              const cast = chapterCast(novelDir, file)
-              for (const name of names) cells[name].push(cast.names.indexOf(name) >= 0)
-            }
-            json(res, 200, { ok: true, files, names, cells })
+            // 3.16.1 改 TTL 缓存：Android /storage 上 novelFingerprint 要 stat
+            // 约 250 个文件（~3 秒），指纹法比计算还慢；写路径有 invalidateAllCaches
+            // 显式失效，30 秒 TTL 对只读矩阵足够新鲜。
+            const { value: matrix } = cachedResult('cast-matrix', 'ttl-' + Math.floor(Date.now() / 30000), () => castMatrix(novelDir))
+            json(res, 200, matrix)
           } catch (error) {
             const status = error && error.status ? error.status : 500
             json(res, status, { ok: false, error: sanitizeWithRoots(String(error && error.message ? error.message : error)) })

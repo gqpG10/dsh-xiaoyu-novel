@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.16.0';
+var BUILD = '3.16.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -937,10 +937,29 @@ var BUILD = '3.16.0';
     get('cast-matrix', wsQuery()).then(function (d) { S.matrix = d; if (S.tab === 'characters') render(); }).catch(function () { S.matrix = { ok: false }; });
   }
 
-  /* 角色出场热力：来自全书体检的 cast 数据（提及次数 + 最后出场章）。 */
+  /* 角色出场热力：3.16.1 起优先用 cast-matrix（出场章数，秒出）；
+     全书体检的提及次数版只在矩阵不可用时兜底——体检是逐章全分析，首跑慢。 */
   function vCastHeat() {
+    var m = S.matrix;
+    if (m && m.ok !== false && m.files && m.files.length && (m.names || []).length) {
+      var nCh = m.files.length;
+      var list2 = m.names.map(function (nm) {
+        var cells = (m.cells && m.cells[nm]) || [];
+        var cnt = 0, last = -1;
+        for (var i = 0; i < cells.length; i++) { if (cells[i]) { cnt++; last = i; } }
+        return { name: nm, cnt: cnt, last: last };
+      }).sort(function (a, b) { return b.cnt - a.cnt; });
+      var max2 = Math.max(1, list2[0] ? list2[0].cnt : 1);
+      return '<div class="card"><h3>出场热力 <span class="badge">条=出场章数 · 末次出场</span></h3>' + list2.map(function (c) {
+        var w = Math.round(c.cnt / max2 * 70);
+        var cold = c.last >= 0 && nCh - 1 - c.last > 15;
+        return '<div class="heatrow"><span style="flex:0 0 7em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">' + esc(c.name) + '</span>' +
+          '<div class="heatbar" style="flex:0 0 ' + Math.max(2, w) + '%;background:' + (cold ? '#8a5a5a' : '#4b8bf5') + '"></div>' +
+          '<span class="muted" style="font-size:11.5px">' + c.cnt + ' 章' + (c.last >= 0 ? ' · 末次 第' + (c.last + 1) + '章' : ' · 未出场') + (cold ? ' ⚠断档' + (nCh - 1 - c.last) + '章' : '') + '</span></div>';
+      }).join('') + '</div>';
+    }
     var cast = (S.audit && S.audit.cast) || null;
-    if (!cast) return '<div class="card"><h3>出场热力</h3><div class="muted">体检计算中…（稍后重进本页）</div></div>';
+    if (!cast) return '<div class="card"><h3>出场热力</h3><div class="muted">矩阵与体检都还没就绪…（体检要逐章全分析，首跑较慢）</div></div>';
     var sorted = cast.slice().sort(function (a, b) { return (b.mentions || 0) - (a.mentions || 0); });
     var max = Math.max(1, sorted[0] && sorted[0].mentions || 1);
     var total = (S.data && S.data.chapters || []).length;
