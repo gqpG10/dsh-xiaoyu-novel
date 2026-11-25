@@ -1,0 +1,3 @@
+const GT = process.env.GITEE_TOKEN;
+const r = await fetch("https://gitee.com/api/v5/repos/gqp20031110/dsh-xiaoyu-novel", {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:GT,name:"dsh-xiaoyu-novel",description:"小鱼创作台 —— DSH 网文创作插件（GitHub 同步，国内直连可用）。AI 主编 + 六帮手写长篇网文：七阶段工作流、逐章去 AI 味门禁、伏笔状态机、可视化创作台（15 tab / 全书体检 / 六维趋势 / 章节蓝图 / 合规敏感词体检 / 题材雷达 / 写作热力格）。书稿是 novel/ 下的纯文本文件，可 git 版本化。"})});
+console.log("gitee PATCH:", r.status, (await r.text()).slice(0, 200));

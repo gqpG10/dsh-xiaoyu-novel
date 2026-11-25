@@ -8,7 +8,9 @@
 
 整本书就是工作区里的一个 `novel/` 目录——纯 markdown 与 YAML，没有数据库，没有 API 层，没有迁移。想查「所有还没回收的伏笔」，就是 grep 一行的事。
 
-**版本**：3.25.1 ｜ **许可**：MIT ｜ **运行时依赖**：零 ｜ **兼容**：Windows / macOS / Linux / Android 上的 DSH Web
+**版本**：3.25.3 ｜ **许可**：MIT ｜ **运行时依赖**：零 ｜ **兼容**：Windows / macOS / Linux / Android 上的 DSH Web
+
+> 本项目由 [dsh-maoying（毛颖创作台）](https://github.com/lifangjin/dsh-maoying) 更改而来 —— 书稿结构、主编 + 帮手分工、创作台面板的形态都源自那里；小鱼在它之后把帮手扩到六个、加重了去 AI 味门禁与体检体系。
 
 ---
 
@@ -313,6 +315,10 @@ XIAOYU_GH_MIRRORS=...       # 覆盖镜像链
 ### 致谢
 
 本插件零第三方运行时依赖（`dependencies: {}`），但不少设计是从这些开源项目与公开作品里学来的，这里逐条列明，谢在明处：
+
+**源头**
+
+- [dsh-maoying（毛颖创作台）](https://github.com/lifangjin/dsh-maoying) —— 本项目由它更改而来。书稿的 `novel/` 文件化结构、主编 + 帮手的分工、创作台面板的形态，最初都在这里成型；小鱼创作台在此基础上把帮手扩到六个、加重了去 AI 味门禁与体检体系。
 
 **构思与结构借鉴**
 

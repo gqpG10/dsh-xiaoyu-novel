@@ -8,7 +8,9 @@ Xiaoyu Studio is a web-novel writing assistant plugin for **DSH (DeepSeek Harnes
 
 The whole novel is a `novel/` directory in your workspace — plain Markdown and YAML. No database, no API layer, no migrations. "Show every unresolved foreshadow" is one line of grep.
 
-**Version**: 3.25.1 · **License**: MIT · **Runtime dependencies**: none · **Runs on**: DSH Web on Windows / macOS / Linux / Android
+**Version**: 3.25.3 · **License**: MIT · **Runtime dependencies**: none · **Runs on**: DSH Web on Windows / macOS / Linux / Android
+
+> This project is a derivative of [dsh-maoying (毛颖创作台)](https://github.com/lifangjin/dsh-maoying) — the manuscript layout, the editor-and-helpers division of labour and the studio-panel form all originate there; Xiaoyu grew it to six helpers and added the de-AI gate and the audit suite.
 
 ---
 
@@ -290,6 +292,10 @@ Every write is validated (format, structure, hash). Files changed externally are
 ### Acknowledgments
 
 This plugin ships with zero third-party runtime dependencies (`dependencies: {}`), but many of its ideas were learned from the projects below:
+
+**The original**
+
+- [dsh-maoying (毛颖创作台)](https://github.com/lifangjin/dsh-maoying) — this project is a derivative of it. The `novel/` file layout, the editor-plus-helpers division of labour and the studio-panel form were all shaped there first; Xiaoyu Studio grew it to six helpers and added the de-AI gate and the audit suite.
 
 **Design and structure**
 
