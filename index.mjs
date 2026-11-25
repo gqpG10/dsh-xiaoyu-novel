@@ -122,8 +122,9 @@ import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from
 // 0.15.3 本章出场名单：关系图按当前章节过滤节点。
 import { chapterCast, castMatrix } from './lib/cast-core.mjs'
 import { chapterContext } from './lib/chapter-context.mjs'
-import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats } from './lib/chapter-blueprint.mjs'
+import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats, qualityOfBlueprint } from './lib/chapter-blueprint.mjs'
 import { qualityTrend } from './lib/quality-trend.mjs'
+import { buildCoverPrompt } from './lib/cover-prompt.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
 import { scanAttributeConflicts, scanTimelineConflicts } from './lib/consistency-core.mjs'
 import { complianceScan } from './lib/compliance-core.mjs'
@@ -2107,6 +2108,26 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'cover-prompt' && req.method === 'POST') {
+          // 3.27.0 封面提示词：书名 + 作者 + 题材 → 两套提示词，落盘 exports/cover-prompt.md。
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          let meta = { title: body.title, author: body.author, genre: body.genre }
+          if (!meta.title || !meta.genre) {
+            try {
+              const raw = readFileSync(path.join(novelDir, 'project.yml'), 'utf8')
+              const pick = (k) => { const m = new RegExp('^\\s*' + k + '\\s*:\\s*(.+)$', 'm').exec(raw); return m ? m[1].trim().replace(/^["']|["']$/g, '') : '' }
+              meta = { title: meta.title || pick('title'), author: meta.author || pick('author'), genre: meta.genre || pick('genre') }
+            } catch { /* 无 project.yml：用传入值 */ }
+          }
+          const built = buildCoverPrompt(meta)
+          const dir = path.join(novelDir, 'exports')
+          mkdirSync(dir, { recursive: true })
+          writeFileSync(path.join(dir, 'cover-prompt.md'), built.text, 'utf8')
+          json(res, 200, { ok: true, rel: 'exports/cover-prompt.md', meta, styles: built.styles })
+          return
+        }
+
         if (route === 'compliance' && req.method === 'GET') {
           // 3.24.0 合规体检：三级敏感词逐章扫描（发番茄/起点前最后一道闸）。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2146,7 +2167,7 @@ export async function registerCreatorRoutes(ctx) {
           mkdirSync(dir, { recursive: true })
           writeFileSync(path.join(dir, packed.chapter + '.yml'), packed.text, 'utf8')
           invalidateAllCaches()
-          json(res, 200, { ok: true, chapter: packed.chapter, rel: 'blueprints/' + packed.chapter + '.yml' })
+          json(res, 200, { ok: true, chapter: packed.chapter, rel: 'blueprints/' + packed.chapter + '.yml', quality: qualityOfBlueprint(body) })
           return
         }
 

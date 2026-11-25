@@ -69,9 +69,12 @@ test('下一章按钮：顶栏渲染 + 末章禁用 + 脏退出确认', () => {
   assert.ok(js.includes('reader.lastChapter'), '末章没有说明文案')
 })
 
-test('下一章：两种形态都接了 onOpenChapter', () => {
+test('下一章：右栏 tab 接了 onOpenChapter（唯一活形态）', () => {
+  // 3.26.0：PageShell overlay 自 3.2.1 起不再渲染（真机黑屏，正文改 iframe），
+  // 它那处 onOpenChapter 接的是死代码里的死接线。右栏 tab 是唯一活形态，
+  // 契约改为「至少 1 处」，并单独断言它走 setOverrideFile（本地 override 换章）。
   const occurrences = js.split('onOpenChapter: function (nextFile)').length - 1
-  assert.ok(occurrences >= 2, 'overlay / 右栏 tab 有一处没接 onOpenChapter（点下一章没反应）')
+  assert.ok(occurrences >= 1, '右栏 tab 没接 onOpenChapter（点下一章没反应）')
   assert.ok(js.includes('setOverrideFile(nextFile)'), '右栏 tab 没走本地 override 换章')
   assert.ok(js.includes('key: shownFile + ":" + revision'), '右栏 tab 换章不会重挂（草稿与编辑态串章）')
 })

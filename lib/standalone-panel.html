@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.25.3';
+var BUILD = '3.27.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1082,6 +1082,15 @@ var BUILD = '3.25.3';
       '</select><span class="muted">写这一章前先看这里：只列「不知道就会写错」的信息</span></div></div>';
     var d = S.ctxPack;
     if (!d) return sel + '<div class="card"><div class="muted">加载中…</div></div>';
+    if (S.ctxPack === d && d.chapter) {
+      var st0 = d.stats || {};
+      var brief = '<div class="card" style="border-left:3px solid #4b8bf5"><h3>上下文卡 <span class="badge">写这一章只看这张</span></h3>' +
+        '<div class="row"><span class="k">在场</span><span class="v">' + esc((d.cast || []).join('、') || '（无）') + '</span></div>' +
+        '<div class="row"><span class="k">必须处理</span><span class="v">' + ((d.foreshadows && d.foreshadows.due || []).map(function (f) { return esc(f.title || f.id); }).join('、') || '（无）') + '</span></div>' +
+        '<div class="row"><span class="k">禁提</span><span class="v">' + ((d.secrets || []).map(function (s) { return esc(s.title || s.id); }).join('、') || '（无）') + '</span></div>' +
+        '<div class="row"><span class="k">前情</span><span class="v">' + (d.prevMemory ? esc(String(d.prevMemory.text || '').split('\n')[0]) : '（无）') + '</span></div>' +
+        '<div class="muted" style="margin-top:4px">' + (st0.castN || 0) + ' 角色 · ' + (st0.dueN || 0) + ' 到期伏笔 · ' + (st0.secretN || 0) + ' 条警戒</div></div>';
+    }
     if (d.ok === false) return sel + '<div class="card"><div class="err">读取失败：' + esc(d.error || '?') + '</div></div>';
     var st = d.stats || {};
     var out = '<div class="card"><h3>本章上下文 <span class="badge">' + esc(d.chapter) + '</span></h3>' +
@@ -1127,6 +1136,13 @@ var BUILD = '3.25.3';
     }).join('');
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
+  }
+  /* 3.27.0 封面提示词（story-cover 范式）：书名+作者+题材 → 两套提示词。 */
+  function vCoverPrompt() {
+    return '<div class="card"><h3>封面提示词 <span class="badge">复制到任意文生图工具</span></h3>' +
+      '<div class="btnrow"><button type="button" id="coverBtn" class="sm pri">生成两套封面提示词</button>' +
+      '<span class="muted">按书名+作者+题材写三层结构（书名/题材暗示/氛围），落盘 exports/cover-prompt.md</span></div>' +
+      (S.coverOut ? '<div class="muted" style="margin-top:6px">' + esc(S.coverOut) + '</div>' : '') + '</div>';
   }
   /* 3.24.0 题材雷达（fanqie-radar 范式）：项目页榜单聚合。 */
   function ensureRadar() {
@@ -1201,6 +1217,7 @@ var BUILD = '3.25.3';
     var b = bp || {}
     return '<div class="card"><h3>蓝图 <span class="badge">' + esc(file) + '</span>' + (b.goal ? '<span class="pill ok">已填</span>' : '<span class="pill mid">未起笔</span>') + '</h3>' +
       '<div class="muted" style="margin-bottom:4px">动笔前三填：本章小目标 / 冲突与转折 / 章尾钩子。写完正文再对照兑现。</div>' +
+      ((S.bpQuality || []).length ? '<div style="margin-bottom:6px">' + S.bpQuality.map(function (q) { return '<div class="row"><span class="v"><span class="pill mid">' + esc(q.field) + '</span> ' + esc(q.message) + '</span></div>'; }).join('') + '</div>' : '') +
       '<div class="row"><span class="k">小目标</span><span class="v"><input id="bpGoal" class="editor small" style="width:100%" value="' + esc(b.goal || '') + '" placeholder="例：陈默拿到断刀"></span></div>' +
       '<div class="row"><span class="k">冲突转折</span><span class="v"><input id="bpConflict" class="editor small" style="width:100%" value="' + esc(b.conflict || '') + '" placeholder="例：追兵封桥 vs 唯一渡口"></span></div>' +
       '<div class="row"><span class="k">章尾钩子</span><span class="v"><input id="bpHook" class="editor small" style="width:100%" value="' + esc(b.hook || '') + '" placeholder="例：刀身刻着一个不该出现的名字"></span></div>' +
@@ -1222,7 +1239,14 @@ var BUILD = '3.25.3';
     if (!btn) return;
     btn.addEventListener('click', function () {
       postJson('blueprint', { path: S.ws, chapter: file, goal: $('bpGoal').value, conflict: $('bpConflict').value, hook: $('bpHook').value })
-        .then(function (r) { note('蓝图已保存 ' + (r.rel || '')); S.blueprint = null; ensureBlueprint(file); })
+        .then(function (r) {
+          var q = r.quality || null;
+          if (q && q.level === 'warn' && q.issues && q.issues.length) {
+            S.bpQuality = q.issues;
+            note('蓝图已保存，但有 ' + q.issues.length + ' 条质量提醒');
+          } else { S.bpQuality = null; note('蓝图已保存 ' + (r.rel || '')); }
+          S.blueprint = null; ensureBlueprint(file); render();
+        })
         .catch(function (e) { note('保存失败：' + ((e && e.message) || e)); });
     });
   }
@@ -2283,9 +2307,18 @@ var BUILD = '3.25.3';
       '<div class="row"><span class="k">模式</span><span class="v"><select id="pMode" style="width:100%">' + modeOpts + '</select></span></div>' +
       '<div class="row"><span class="k">简介</span><span class="v"><textarea id="pDesc" class="small" style="width:100%">' + esc(v.description || '') + '</textarea></span></div>' +
       '<div class="btnrow"><button type="button" id="projSave" class="sm pri">保存</button>' +
-      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vRadar() + vBeats();
+      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vCoverPrompt() + vRadar() + vBeats();
   }
   function bindProj() {
+    var cb = $('coverBtn');
+    if (cb) cb.addEventListener('click', function () {
+      note('生成中…');
+      postJson('cover-prompt', { path: S.ws }).then(function (r) {
+        S.coverOut = '已生成：' + r.rel + '（风格A商业主图 / 风格B概念艺术，各一套）';
+        note('封面提示词已生成');
+        render();
+      }).catch(function (e) { note('生成失败：' + ((e && e.message) || e)); });
+    });
     var rf = $('radarRefresh');
     if (rf) rf.addEventListener('click', function () { S.radar = null; ensureRadar(); render(); });
     var bs = $('beatsSave');
