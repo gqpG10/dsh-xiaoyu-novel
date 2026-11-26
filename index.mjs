@@ -2151,21 +2151,45 @@ export async function registerCreatorRoutes(ctx) {
           if (!bookId) { json(res, 400, { ok: false, error: 'bookId 必填（探活后选书）' }); return }
           const list = Array.isArray(body.chapters) ? body.chapters.slice(0, 50) : []
           if (!list.length) { json(res, 400, { ok: false, error: '没有勾选章节' }); return }
+          // 3.32.0 三个修正：
+          //   ① 正文/章号/标题一律走 readChapter（和阅读页同一解析器）——之前自己写正则
+          //     剥 frontmatter，实际没剥净，把 summary/认知框架当正文发了；
+          //   ② 标题自动拼「第N章 标题」（番茄章号在标题里，不是独立字段）；
+          //   ③ 按章序排序后再发，不按勾选顺序（倒序勾选会把书发成倒的）。
+          const sorted = list.slice().sort((x, y) => {
+            const a1 = String(x.file || ''), b1 = String(y.file || '')
+            return a1 < b1 ? -1 : a1 > b1 ? 1 : 0
+          })
           const results = []
-          for (const item of list) {
+          for (const item of sorted) {
             const file = String(item.file || '')
             const stem = file.replace(/\.md$/i, '')
             if (!/^[A-Za-z0-9_-]+$/.test(stem)) { results.push({ file, ok: false, error: '章名非法' }); continue }
-            let raw = ''
-            try { raw = readFileSync(path.join(novelDir, 'chapters', stem + '.md'), 'utf8') } catch { results.push({ file, ok: false, error: '正文读取失败' }); continue }
-            const bodyText = raw.replace(/^---[\s\S]*?\n---\n/, '').trim()
+            let ch = null
+            try { ch = readChapter(novelDir, stem) } catch { ch = null }
+            if (!ch || ch.ok === false) { results.push({ file, ok: false, error: '正文读取失败' }); continue }
+            const fm = ch.frontmatter || {}
+            const bodyText = String(ch.body || '').trim()
             if (!bodyText) { results.push({ file, ok: false, error: '正文为空' }); continue }
-            const title = String(item.title || '').trim() || ('第' + (item.no != null ? item.no : stem) + '章')
-            if (body.dry === true) { results.push({ file, ok: true, dry: true, title, chars: bodyText.length }); continue }
+            // 自检：正文首行不该是 frontmatter 字段（剥不净时直接拒发）
+            const firstLine = bodyText.split(/\r?\n/, 1)[0] || ''
+            if (/^(volume|num|title|status|summary|cognitive_frame|emotional_anchor|world_texture|suspense|interpersonal_tension)\s*:/i.test(firstLine)) {
+              results.push({ file, ok: false, error: '正文头部未剥离（首行是 frontmatter 字段），已拒发' })
+              continue
+            }
+            // 章号：frontmatter.num → 文件名 v01-c003 的 3 → 面板传的 no
+            let no = Number(fm.num)
+            if (!Number.isFinite(no) || no <= 0) {
+              const m = /-c(\d+)$/i.exec(stem)
+              no = m ? Number(m[1]) : (Number(item.no) || 0)
+            }
+            const pureTitle = String(fm.title || item.title || '').trim() || stem
+            const title = no > 0 ? ('第' + no + '章 ' + pureTitle) : pureTitle
+            if (body.dry === true) { results.push({ file, ok: true, dry: true, title, chars: bodyText.length, excerpt: bodyText.slice(0, 60) }); continue }
             try {
               const pub = await fanqiePublish(a, { bookId, title, content: bodyText })
-              markPublished(novelDir, stem, { title, bookId, itemId: pub.itemId })
-              results.push({ file, ok: true, title, itemId: pub.itemId })
+              markPublished(novelDir, stem, { title, bookId, itemId: pub.itemId, no })
+              results.push({ file, ok: true, title, itemId: pub.itemId, no })
             } catch (e) {
               results.push({ file, ok: false, title, error: String((e && e.message) || e) })
             }
