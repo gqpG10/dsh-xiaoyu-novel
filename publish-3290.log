@@ -1,1 +1,24 @@
 files: 187
+blobs done: 187
+ref update: 200
+tag create: 201
+release: 201
+asset upload: 201
+github ok
+gitee progress: 25 / 187
+gitee progress: 50 / 187
+gitee progress: 75 / 187
+WARN templates/novel/chapters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/characters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/exports/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/outlines/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/research/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/science/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 100 / 187
+WARN templates/novel/world/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 125 / 187
+gitee progress: 150 / 187
+gitee progress: 175 / 187
+gitee files created: 4 updated: 176
+gitee tag: 201 {"name":"v3.29.0","message":"","commit":{"sha":"ba603c12629aa47a163875f5496180363a3ae319","date":"2026-11-26T13:55:44+00:00"},"tagger":null}
+gitee ok

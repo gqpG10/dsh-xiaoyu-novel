@@ -1,0 +1,15 @@
+files: 189
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+[TypeError: fetch failed] {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: api.github.com:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:1992:23)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:1958:35)
+      at process.processImmediate (node:internal/timers:574:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}
+
+Node.js v24.22.1

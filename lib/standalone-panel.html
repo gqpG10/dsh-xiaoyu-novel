@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.29.0';
+var BUILD = '3.30.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -142,7 +142,9 @@ var BUILD = '3.29.0';
             // 3.28.0 章节列表排序：正序（默认）/ 倒序，用户选择持久化
             chapDesc: (function () { try { return localStorage.getItem('xiaoyu.chapDesc') === '1'; } catch (e) { return false; } })(),
             // 3.29.0 番茄发布：令牌配置态 / 书单 / 发布记录 / 上次结果
-            fq: null, fqBooks: null, fqBook: '', fqLedger: null, fqResults: null, fqCsrfDraft: '' };
+            fq: null, fqBooks: null, fqBook: '', fqLedger: null, fqResults: null, fqCsrfDraft: '',
+            // 3.30.0 封面提示词：生成结果直接驻留面板供复制
+            coverRes: null };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -1193,10 +1195,29 @@ var BUILD = '3.29.0';
   }
   /* 3.27.0 封面提示词（story-cover 范式）：书名+作者+题材 → 两套提示词。 */
   function vCoverPrompt() {
-    return '<div class="card"><h3>封面提示词 <span class="badge">复制到任意文生图工具</span></h3>' +
+    var c = S.coverRes;
+    var head = '<div class="card"><h3>封面提示词 <span class="badge">复制到任意文生图工具</span></h3>' +
       '<div class="btnrow"><button type="button" id="coverBtn" class="sm pri">生成两套封面提示词</button>' +
-      '<span class="muted">按书名+作者+题材写三层结构（书名/题材暗示/氛围），落盘 exports/cover-prompt.md</span></div>' +
-      (S.coverOut ? '<div class="muted" style="margin-top:6px">' + esc(S.coverOut) + '</div>' : '') + '</div>';
+      (c ? '<button type="button" id="coverCopyAll" class="sm">复制全部</button>' : '') +
+      '<span class="muted">按书名+作者+题材写三层结构（书名/题材暗示/氛围），同时落盘 exports/cover-prompt.md</span></div>';
+    if (!c) return head + (S.coverOut ? '<div class="muted" style="margin-top:6px">' + esc(S.coverOut) + '</div>' : '') + '</div>';
+    var block = function (key, title, cls) {
+      var text = c.styles && c.styles[key];
+      if (!text) return '';
+      return '<div style="margin-top:10px">' +
+        '<div class="btnrow" style="justify-content:space-between;align-items:center">' +
+          '<b>' + esc(title) + '</b>' +
+          '<button type="button" class="sm coverCopy" data-style="' + key + '">复制这套</button>' +
+        '</div>' +
+        '<pre class="editor small" style="white-space:pre-wrap;word-break:break-word;margin:6px 0 0;padding:8px;background:#1a2029;border-radius:8px;line-height:1.6;color:#c8ced8">' + esc(text) + '</pre>' +
+        '</div>';
+    };
+    return head +
+      '<div class="muted" style="margin-top:4px">' + esc((c.meta && c.meta.title) || '') +
+        ' · ' + esc((c.meta && c.meta.genre) || '') + '</div>' +
+      block('commercial', '风格 A · 商业主图风（竖版 3:4，书名压上部三分之一）') +
+      block('concept', '风格 B · 概念艺术风（竖版 3:4，留白为主，少字）') +
+      '</div>';
   }
   /* 3.24.0 题材雷达（fanqie-radar 范式）：项目页榜单聚合。 */
   function ensureRadar() {
@@ -2368,10 +2389,26 @@ var BUILD = '3.29.0';
     if (cb) cb.addEventListener('click', function () {
       note('生成中…');
       postJson('cover-prompt', { path: S.ws }).then(function (r) {
-        S.coverOut = '已生成：' + r.rel + '（风格A商业主图 / 风格B概念艺术，各一套）';
-        note('封面提示词已生成');
+        S.coverRes = { styles: r.styles || {}, meta: r.meta || {} };
+        S.coverOut = '已落盘：' + (r.rel || '');
+        note('封面提示词已生成（面板内可直接复制）');
         render();
       }).catch(function (e) { note('生成失败：' + ((e && e.message) || e)); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.coverCopy'), function (btn) {
+      btn.addEventListener('click', function () {
+        var k = btn.getAttribute('data-style');
+        var text = (S.coverRes && S.coverRes.styles && S.coverRes.styles[k]) || '';
+        if (!text) { note('没有可复制的内容'); return; }
+        copy(text).then(function (ok) { note(ok ? '已复制（' + (k === 'commercial' ? '风格 A' : '风格 B') + '）' : '复制失败，可长按文本框手动选择'); });
+      });
+    });
+    var ca = $('coverCopyAll');
+    if (ca) ca.addEventListener('click', function () {
+      var s = (S.coverRes && S.coverRes.styles) || {};
+      var all = [s.commercial || '', s.concept || ''].filter(Boolean).join('\n\n');
+      if (!all) { note('没有可复制的内容'); return; }
+      copy(all).then(function (ok) { note(ok ? '已复制两套' : '复制失败，可长按文本框手动选择'); });
     });
     var rf = $('radarRefresh');
     if (rf) rf.addEventListener('click', function () { S.radar = null; ensureRadar(); render(); });
