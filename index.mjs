@@ -125,6 +125,7 @@ import { chapterContext } from './lib/chapter-context.mjs'
 import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats, qualityOfBlueprint } from './lib/chapter-blueprint.mjs'
 import { qualityTrend } from './lib/quality-trend.mjs'
 import { buildCoverPrompt } from './lib/cover-prompt.mjs'
+import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
 import { scanAttributeConflicts, scanTimelineConflicts } from './lib/consistency-core.mjs'
 import { complianceScan } from './lib/compliance-core.mjs'
@@ -2105,6 +2106,80 @@ export async function registerCreatorRoutes(ctx) {
             return { problems }
           })
           json(res, 200, cons)
+          return
+        }
+
+        if (route === 'fanqie-auth' && req.method === 'GET') {
+          // 3.29.0 番茄发布：只回是否已存令牌（不回显令牌本身）。
+          const a = loadAuth(resolveDshHome())
+          json(res, 200, { ok: true, configured: !!a, savedAt: a ? a.savedAt : null })
+          return
+        }
+
+        if (route === 'fanqie-auth' && req.method === 'POST') {
+          // 存 Cookie + csrf（落 DSH home，不进书目录/不进 git）。
+          const body = await readBody(req, res)
+          const cookie = String(body.cookie || '').trim()
+          const csrf = String(body.csrf || '').trim()
+          if (!cookie) { json(res, 400, { ok: false, error: 'Cookie 不能为空' }); return }
+          saveAuth(resolveDshHome(), { cookie, csrf })
+          json(res, 200, { ok: true, saved: true })
+          return
+        }
+
+        if (route === 'fanqie-check' && req.method === 'GET') {
+          // 登录态探活 + 书单（Cookie 失效秒级发现）。
+          const a = loadAuth(resolveDshHome())
+          if (!a) { json(res, 200, { ok: false, error: '还没配置令牌' }); return }
+          try {
+            const r = await checkLogin(a)
+            json(res, 200, r)
+          } catch (e) {
+            json(res, 200, { ok: false, error: String((e && e.message) || e) })
+          }
+          return
+        }
+
+        if (route === 'fanqie-publish' && req.method === 'POST') {
+          // 逐章发布：body { path, bookId, chapters:[{file,title,no}], dry }
+          // 一章一提交；每章成功即记账，失败的带原因返回，不中断后续章。
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const a = loadAuth(resolveDshHome())
+          if (!a) { json(res, 400, { ok: false, error: '还没配置令牌（先在项目页填 Cookie 与 csrf）' }); return }
+          const bookId = String(body.bookId || '')
+          if (!bookId) { json(res, 400, { ok: false, error: 'bookId 必填（探活后选书）' }); return }
+          const list = Array.isArray(body.chapters) ? body.chapters.slice(0, 50) : []
+          if (!list.length) { json(res, 400, { ok: false, error: '没有勾选章节' }); return }
+          const results = []
+          for (const item of list) {
+            const file = String(item.file || '')
+            const stem = file.replace(/\.md$/i, '')
+            if (!/^[A-Za-z0-9_-]+$/.test(stem)) { results.push({ file, ok: false, error: '章名非法' }); continue }
+            let raw = ''
+            try { raw = readFileSync(path.join(novelDir, 'chapters', stem + '.md'), 'utf8') } catch { results.push({ file, ok: false, error: '正文读取失败' }); continue }
+            const bodyText = raw.replace(/^---[\s\S]*?\n---\n/, '').trim()
+            if (!bodyText) { results.push({ file, ok: false, error: '正文为空' }); continue }
+            const title = String(item.title || '').trim() || ('第' + (item.no != null ? item.no : stem) + '章')
+            if (body.dry === true) { results.push({ file, ok: true, dry: true, title, chars: bodyText.length }); continue }
+            try {
+              const pub = await fanqiePublish(a, { bookId, title, content: bodyText })
+              markPublished(novelDir, stem, { title, bookId, itemId: pub.itemId })
+              results.push({ file, ok: true, title, itemId: pub.itemId })
+            } catch (e) {
+              results.push({ file, ok: false, title, error: String((e && e.message) || e) })
+            }
+            // 章与章之间留一点间隔，避免请求过于密集
+            await new Promise((r2) => setTimeout(r2, 400))
+          }
+          json(res, 200, { ok: results.some((x) => x.ok), results, ledger: readLedger(novelDir) })
+          return
+        }
+
+        if (route === 'fanqie-published' && req.method === 'GET') {
+          // 已发布记录（面板显示「已发布」徽标用）。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          json(res, 200, { ok: true, ledger: readLedger(novelDir) })
           return
         }
 

@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.28.0';
+var BUILD = '3.29.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -140,7 +140,9 @@ var BUILD = '3.28.0';
             git:null, gitLog:null, versionsFile:'', versions:null,
             ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[], sprint:null, qcDone:{}, beats:null, snowOpen:false, nameGen:null, nameCat:'ming', snow:{},
             // 3.28.0 章节列表排序：正序（默认）/ 倒序，用户选择持久化
-            chapDesc: (function () { try { return localStorage.getItem('xiaoyu.chapDesc') === '1'; } catch (e) { return false; } })() };
+            chapDesc: (function () { try { return localStorage.getItem('xiaoyu.chapDesc') === '1'; } catch (e) { return false; } })(),
+            // 3.29.0 番茄发布：令牌配置态 / 书单 / 发布记录 / 上次结果
+            fq: null, fqBooks: null, fqBook: '', fqLedger: null, fqResults: null, fqCsrfDraft: '' };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -478,6 +480,46 @@ var BUILD = '3.28.0';
     if (!g || !g.ok) return '';
     return '<span class="pill ' + humanColor(g) + '">人味 ' + g.human + '</span>';
   }
+  /* 3.29.0 番茄发布：填 Cookie + csrf 存本地 → 探活拉书单 → 勾章节逐章发。 */
+  function ensureFanqie() {
+    if (S.fq === undefined || S.fq === null) {
+      get('fanqie-auth', {}).then(function (d) { S.fq = { configured: !!(d && d.configured) }; if (S.tab === 'chapters') render(); }).catch(function () { S.fq = { configured: false }; });
+    }
+    if (S.fqLedger === null || S.fqLedger === undefined) {
+      get('fanqie-published', wsQuery()).then(function (d) { S.fqLedger = (d && d.ledger) || {}; if (S.tab === 'chapters') render(); }).catch(function () { S.fqLedger = {}; });
+    }
+  }
+  function vFanqie() {
+    ensureFanqie();
+    var f = S.fq || {};
+    var ledger = S.fqLedger || {};
+    var doneN = Object.keys(ledger).length;
+    var books = (S.fqBooks || []);
+    var selected = S.fqBook || (books[0] && books[0].bookId) || '';
+    var out = '<div class="card"><h3>番茄发布 <span class="badge">' + (f.configured ? '令牌已存' : '未配置') + '</span>' +
+      (doneN ? '<span class="pill ok">已发 ' + doneN + ' 章</span>' : '') + '</h3>';
+    if (!f.configured) {
+      out += '<div class="muted" style="margin-bottom:6px">取法：浏览器登录 fanqienovel.com 作家后台 → F12 → Network → 点任意 /api/author/... 请求 → 复制请求头里的 <b>Cookie</b> 整行，以及 <b>X-Secsdk-Csrf-Token</b> 的值。Cookie 有效期约 1~2 个月。</div>';
+    }
+    out += '<div class="row"><span class="k">Cookie</span><span class="v"><input id="fqCookie" class="editor small" style="width:100%" placeholder="粘贴整行 Cookie（很长，正常）" value=""></span></div>' +
+      '<div class="row"><span class="k">csrf</span><span class="v"><input id="fqCsrf" class="editor small" style="width:100%" placeholder="X-Secsdk-Csrf-Token 的值" value="' + esc(S.fqCsrfDraft || '') + '"></span></div>' +
+      '<div class="btnrow"><button type="button" id="fqSave" class="sm pri">保存令牌</button>' +
+      '<button type="button" id="fqCheck" class="sm">探活并拉书单</button></div>';
+    if (books.length) {
+      out += '<div class="row"><span class="k">发布到</span><span class="v"><select id="fqBook" style="width:100%">' +
+        books.map(function (b) { return '<option value="' + esc(b.bookId) + '"' + (b.bookId === selected ? ' selected' : '') + '>' + esc(b.name || b.bookId) + (b.words != null ? '（' + b.words + ' 字）' : '') + '</option>'; }).join('') +
+        '</select></span></div>' +
+        '<div class="btnrow"><button type="button" id="fqPublish" class="sm pri">发布已勾选章节</button><span class="muted">勾选在下方章节列表里；一章一次提交，失败的会逐条报原因</span></div>';
+    } else if (f.configured) {
+      out += '<div class="muted">点「探活并拉书单」验证 Cookie 并选择要发布的书</div>';
+    }
+    if ((S.fqResults || []).length) {
+      out += '<div style="margin-top:6px">' + S.fqResults.slice(0, 20).map(function (r) {
+        return '<div class="row"><span class="v"><span class="pill ' + (r.ok ? 'ok' : 'bad') + '">' + esc(r.file) + '</span> ' + esc(r.ok ? '已发布 ' + (r.title || '') : (r.error || '')) + '</span></div>';
+      }).join('') + '</div>';
+    }
+    return out + '</div>';
+  }
   function vChapters(d) {
     var list = (d.chapters || []).slice();
     if (!list.length) return '<div class="card"><div class="muted">还没有章节</div></div>';
@@ -489,13 +531,14 @@ var BUILD = '3.28.0';
     });
     // 3.28.0 正序/倒序：按章序排列（文件名字典序即卷章序，v01-c002 < v02-c001），
     // 倒序便于「最近写的章在最上面」的追更视角。选择持久化到 localStorage。
+    var fqHead = vFanqie();
     var desc = S.chapDesc === true;
     list = list.slice().sort(function (a, b) {
       var fa = String(a.file || ''), fb = String(b.file || '');
       return desc ? (fa < fb ? 1 : fa > fb ? -1 : 0) : (fa < fb ? -1 : fa > fb ? 1 : 0);
     });
     var picked = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; }).length;
-    return '<div class="card"><h3>共 ' + list.length + ' 章' +
+    return fqHead + '<div class="card"><h3>共 ' + list.length + ' 章' +
       (S.gates && S.gates.gates ? '<span class="badge">及格线 ' + esc(S.gates.passMark) + '</span>' : '') +
       ' <button type="button" id="chapOrder" class="sm" title="切换章节排列顺序">' + (desc ? '倒序 ↓' : '正序 ↑') + '</button>' +
       ' <button type="button" id="selToggle" class="sm">' + (S.selMode ? '退出选择' : '批量选择') + '</button></h3>' +
@@ -512,6 +555,7 @@ var BUILD = '3.28.0';
           '<span class="no">第' + esc(c.num != null ? c.num : '?') + '章</span>' +
           '<span class="ti">' + esc(c.title || c.file) +
             (c.status ? '<span class="pill">' + esc(STATUS_LABEL[c.status] || c.status) + '</span>' : '') +
+            ((S.fqLedger || {})[String(c.file || '').replace(/\.md$/i, '')] ? '<span class="pill ok">已发布</span>' : '') +
             gatePill(c.file) +
             (c.summary ? '<div class="muted">' + esc(String(c.summary).slice(0, 90)) + '</div>' : '') +
           '</span><span class="w">' + esc(c.words || 0) + '</span>' + close;
@@ -3211,6 +3255,47 @@ var BUILD = '3.28.0';
   }
 
   function bindChapters() {
+    var fs1 = $('fqSave');
+    if (fs1) fs1.addEventListener('click', function () {
+      var ck = $('fqCookie'), cs = $('fqCsrf');
+      if (!ck || !String(ck.value || '').trim()) { note('Cookie 不能为空'); return; }
+      postJson('fanqie-auth', { cookie: ck.value, csrf: cs ? cs.value : '' })
+        .then(function () { note('令牌已存（本机，不进仓库）'); S.fq = { configured: true }; render(); })
+        .catch(function (e) { note('保存失败：' + ((e && e.message) || e)); });
+    });
+    var fc = $('fqCheck');
+    if (fc) fc.addEventListener('click', function () {
+      note('探活中…');
+      get('fanqie-check', {}).then(function (d) {
+        if (d && d.ok) { S.fqBooks = d.books || []; S.fq = { configured: true }; note('登录态正常，书单 ' + (d.books || []).length + ' 本'); }
+        else { S.fqBooks = []; note('探活失败：' + ((d && d.error) || '未知')); }
+        render();
+      }).catch(function (e) { note('探活失败：' + ((e && e.message) || e)); });
+    });
+    var fb = $('fqBook');
+    if (fb) fb.addEventListener('change', function () { S.fqBook = fb.value; });
+    var fp = $('fqPublish');
+    if (fp) fp.addEventListener('click', function () {
+      var picked2 = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; });
+      if (!picked2.length) { note('先在下面勾选要发布的章节（点「批量选择」）'); return; }
+      var metas = {};
+      (S.data && S.data.chapters || []).forEach(function (c) { metas[c.file] = c; });
+      var chapters = picked2.map(function (f) {
+        var m = metas[f] || {};
+        return { file: f, title: m.title || '', no: m.num };
+      });
+      var bookId = S.fqBook || (S.fqBooks && S.fqBooks[0] && S.fqBooks[0].bookId) || '';
+      if (!bookId) { note('先探活并选择要发布的书'); return; }
+      if (!window.confirm('确认把 ' + chapters.length + ' 章发布到番茄？发布后会提交审核。')) return;
+      note('逐章发布中…');
+      postJson('fanqie-publish', { path: S.ws, bookId: bookId, chapters: chapters }).then(function (d) {
+        S.fqResults = (d && d.results) || [];
+        S.fqLedger = (d && d.ledger) || S.fqLedger || {};
+        var okN = S.fqResults.filter(function (x) { return x.ok; }).length;
+        note('完成：成功 ' + okN + ' / ' + S.fqResults.length);
+        render();
+      }).catch(function (e) { note('发布失败：' + ((e && e.message) || e)); });
+    });
     var ob = $('chapOrder');
     if (ob) ob.addEventListener('click', function () {
       S.chapDesc = !(S.chapDesc === true);
