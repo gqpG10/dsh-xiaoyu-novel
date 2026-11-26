@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.27.0';
+var BUILD = '3.28.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -138,7 +138,9 @@ var BUILD = '3.27.0';
             proj:null,
             trash:null, ledger:null, slim:null,
             git:null, gitLog:null, versionsFile:'', versions:null,
-            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[], sprint:null, qcDone:{}, beats:null, snowOpen:false, nameGen:null, nameCat:'ming', snow:{} };
+            ed:null, genEd:null, graphSel:-1, coll:{}, progress:null, setup:null, cast:null, dedupe:null, autofill:null, handoff:null, charStates:null, lclean:null, searchQ:'', searchRes:null, relChap:'', castFilter:null, matrix:null, hlLine:0, genView:null, q2:'', selMode:false, selSet:{}, trend:null, trashPrev:null, sess:null, graphZoom:1, fontScale:1, diff:null, readerPos:{}, todoDone:{}, lastPosSaved:{}, wsList:[], sprint:null, qcDone:{}, beats:null, snowOpen:false, nameGen:null, nameCat:'ming', snow:{},
+            // 3.28.0 章节列表排序：正序（默认）/ 倒序，用户选择持久化
+            chapDesc: (function () { try { return localStorage.getItem('xiaoyu.chapDesc') === '1'; } catch (e) { return false; } })() };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -485,9 +487,17 @@ var BUILD = '3.27.0';
              String(c.summary || '').toLowerCase().indexOf(q) >= 0 ||
              String(c.file || '').toLowerCase().indexOf(q) >= 0;
     });
+    // 3.28.0 正序/倒序：按章序排列（文件名字典序即卷章序，v01-c002 < v02-c001），
+    // 倒序便于「最近写的章在最上面」的追更视角。选择持久化到 localStorage。
+    var desc = S.chapDesc === true;
+    list = list.slice().sort(function (a, b) {
+      var fa = String(a.file || ''), fb = String(b.file || '');
+      return desc ? (fa < fb ? 1 : fa > fb ? -1 : 0) : (fa < fb ? -1 : fa > fb ? 1 : 0);
+    });
     var picked = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; }).length;
     return '<div class="card"><h3>共 ' + list.length + ' 章' +
       (S.gates && S.gates.gates ? '<span class="badge">及格线 ' + esc(S.gates.passMark) + '</span>' : '') +
+      ' <button type="button" id="chapOrder" class="sm" title="切换章节排列顺序">' + (desc ? '倒序 ↓' : '正序 ↑') + '</button>' +
       ' <button type="button" id="selToggle" class="sm">' + (S.selMode ? '退出选择' : '批量选择') + '</button></h3>' +
       (S.selMode ? '<div class="btnrow" style="background:#1a2029;border-radius:8px;padding:6px 8px"><span class="muted">已选 ' + picked + ' 章</span>' +
         '<button type="button" id="selAll" class="sm">全选</button><button type="button" id="selNone" class="sm">清空</button>' +
@@ -3201,6 +3211,12 @@ var BUILD = '3.27.0';
   }
 
   function bindChapters() {
+    var ob = $('chapOrder');
+    if (ob) ob.addEventListener('click', function () {
+      S.chapDesc = !(S.chapDesc === true);
+      try { localStorage.setItem('xiaoyu.chapDesc', S.chapDesc ? '1' : '0'); } catch (e) {}
+      render();
+    });
     Array.prototype.forEach.call(document.querySelectorAll('.chap'), function (b) {
       b.addEventListener('click', function () {
         var ov = b.getAttribute('data-outline');
