@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import { complianceScan, scanChapterText } from '../lib/compliance-core.mjs'
-import { aggregateCategories, parseRankHtmlForTest } from '../lib/trend-radar.mjs'
+import { aggregateCategories, extractInitialState, parseRankState, mergeBookLists } from '../lib/trend-radar.mjs'
 
 // ── 3.24.0 合规体检 + 题材雷达 ──────────────────────────────────────
 
@@ -48,18 +48,32 @@ test('合规：自定义词库 compliance.yml 合并扩充', () => {
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('雷达：parseRankHtml 提取 + 题材聚合排序', () => {
-  const html = '<script>window.__INITIAL_STATE__ = {"bookList":[{"bookName":"书甲","category":"都市","heat":900},{"bookName":"书乙","category":"玄幻","heat":300},{"bookName":"书丙","category":"都市","heat":500}]};</script>'
-  const items = parseRankHtmlForTest(html)
-  assert.equal(items.length, 3)
-  assert.equal(items[0].title, '书甲')
-  const cats = aggregateCategories(items)
-  assert.equal(cats[0].category, '都市')
+test('雷达：INITIAL_STATE 提取 + category_id 翻名 + 聚合排序', () => {
+  const state = {
+    rank: {
+      book_list: [
+        { bookId: '1', bookName: '书甲', curent_category_id: 261, wordNumber: '100000', readCount: '900' },
+        { bookId: '2', bookName: '书乙', curent_category_id: 1141, wordNumber: '200000', readCount: '300' },
+        { bookId: '3', bookName: '书丙', curent_category_id: 261, wordNumber: '300000', readCount: '500' },
+      ],
+      rankCategoryTypeList: { male: [{ id: '261', name: '都市日常' }, { id: '1141', name: '西方奇幻' }] },
+    },
+  }
+  const html = '<script>window.__INITIAL_STATE__=' + JSON.stringify(state) + ';</script>'
+  const st = extractInitialState(html)
+  assert.ok(st, '必须能从无空格等号后解析 JSON')
+  const { books } = parseRankState(st)
+  assert.equal(books.length, 3)
+  assert.equal(books[0].category, '都市日常', 'ID 要翻成题材名')
+  assert.equal(books[1].category, '西方奇幻')
+  const cats = aggregateCategories(books)
+  assert.equal(cats[0].category, '都市日常')
   assert.equal(cats[0].count, 2)
-  assert.equal(cats[1].count, 1)
 })
 
-test('雷达：空 HTML 不炸', () => {
-  assert.equal(parseRankHtmlForTest('<html></html>').length, 0)
+test('雷达：空 HTML 不炸 + 双榜去重', () => {
+  assert.equal(extractInitialState('<html></html>'), null)
   assert.equal(aggregateCategories([]).length, 0)
+  const merged = mergeBookLists([[{ bookId: '1', title: '甲' }], [{ bookId: '1', title: '甲' }, { bookId: '2', title: '乙' }]])
+  assert.equal(merged.length, 2, '同 bookId 只留一本')
 })

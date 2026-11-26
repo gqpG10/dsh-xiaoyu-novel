@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.30.0';
+var BUILD = '3.31.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -544,7 +544,7 @@ var BUILD = '3.30.0';
       (S.gates && S.gates.gates ? '<span class="badge">及格线 ' + esc(S.gates.passMark) + '</span>' : '') +
       ' <button type="button" id="chapOrder" class="sm" title="切换章节排列顺序">' + (desc ? '倒序 ↓' : '正序 ↑') + '</button>' +
       ' <button type="button" id="selToggle" class="sm">' + (S.selMode ? '退出选择' : '批量选择') + '</button></h3>' +
-      (S.selMode ? '<div class="btnrow" style="background:#1a2029;border-radius:8px;padding:6px 8px"><span class="muted">已选 ' + picked + ' 章</span>' +
+      (S.selMode ? '<div class="btnrow" style="background:#1a2029;border-radius:8px;padding:6px 8px"><span class="muted" id="selCount">已选 ' + picked + ' 章</span>' +
         '<button type="button" id="selAll" class="sm">全选</button><button type="button" id="selNone" class="sm">清空</button>' +
         '<button type="button" id="selAccept" class="sm pri">一键已定稿</button></div>' : '') +
       '<input id="q" placeholder="搜标题 / 摘要 / 文件名" value="' + esc(S.q) + '" style="width:100%;margin-bottom:8px">' +
@@ -3225,6 +3225,20 @@ var BUILD = '3.30.0';
        （「日更目标改不了」的根因）。先记住焦点，渲完还回去。 */
     var refocus = null;
     try { if (document.activeElement && document.activeElement.id === 'goalInput') refocus = 'goalInput'; } catch (e) {}
+    // 3.31.0 滚动保持：整页重建会把滚动位置重置到顶部（长章节列表里尤其难受）。
+    // 渲染前记下 #view 的 scrollTop，渲完（含异步补渲）立刻还原。
+    var keepScroll = 0;
+    try { var _v0 = $('view'); if (_v0) keepScroll = _v0.scrollTop || 0; } catch (e) {}
+    var restoreScroll = function () {
+      try {
+        var vv = $('view');
+        if (vv && keepScroll > 0) {
+          vv.scrollTop = keepScroll;
+          var sc = document.scrollingElement || document.documentElement;
+          if (sc && keepScroll > 0 && vv.scrollTop === 0) sc.scrollTop = keepScroll;
+        }
+      } catch (e) {}
+    };
     tabBar();
     $('build').textContent = 'b' + BUILD;
     var v = $('view');
@@ -3269,6 +3283,9 @@ var BUILD = '3.30.0';
       });
     }
     if (refocus) { var rf = $(refocus); if (rf) rf.focus(); }
+    // 3.31.0 立刻还原滚动，并在下一帧再还原一次（宿主异步布局会二次归零）
+    restoreScroll();
+    try { if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restoreScroll); } catch (e) {}
   }
 
   /* 只读章纲查看器（搜索命中章纲时用；outlines 不在可写白名单，不给编辑）。 */
@@ -3291,6 +3308,13 @@ var BUILD = '3.30.0';
       '<div class="muted" style="white-space:pre-wrap">' + esc(g.text || '（空）') + '</div></div>';
   }
 
+  /** 3.31.0 就地刷新「已选 N 章」：勾选不整页 render，滚动位置不动。 */
+  function updateSelCount() {
+    var el = $('selCount');
+    if (!el) return;
+    var n = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; }).length;
+    el.textContent = '已选 ' + n + ' 章';
+  }
   function bindChapters() {
     var fs1 = $('fqSave');
     if (fs1) fs1.addEventListener('click', function () {
@@ -3376,12 +3400,18 @@ var BUILD = '3.30.0';
         chain.then(function () { note('已定稿 ' + files.length + ' 章'); S.selMode = false; S.selSet = {}; loadState(); });
       });
     });
+    // 3.31.0 勾选不再整页 render：以前每勾一下都重建 #view，浏览器把滚动位置
+    // 重置到顶部（「点下面章节的框就跳回第一章」）。现在只写状态 + 就地更新计数，
+    // 滚动位置、搜索框焦点、其他行的展开态都不受影响。
     Array.prototype.forEach.call(document.querySelectorAll('.selChk'), function (c) {
       c.addEventListener('change', function (ev) {
         ev.stopPropagation();
         S.selSet[c.getAttribute('data-file')] = c.checked;
-        render();
+        updateSelCount();
       });
+      // 点 label 其他区域时阻止冒泡，免得触发整行点击
+      var wrap = c.closest('label');
+      if (wrap) wrap.addEventListener('click', function (ev) { ev.stopPropagation(); });
     });
     var sr = $('sessReset');
     if (sr) sr.addEventListener('click', function () {
