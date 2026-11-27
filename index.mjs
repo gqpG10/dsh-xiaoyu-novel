@@ -129,6 +129,8 @@ import { packProject, unpackProject } from './lib/project-pack.mjs'
 import { scanDialogueQuotes, gateDialogueQuotes, summarizeDialogueQuotes } from './lib/dialogue-quote.mjs'
 import { analyzeAiTaste, gateAiTaste, summarizeAiTaste } from './lib/ai-taste.mjs'
 import { checkSixBeats } from './lib/chapter-blueprint.mjs'
+import { auditForeshadows, gateForeshadow, summarizeForeshadow } from './lib/foreshadow-audit.mjs'
+import { loadStyleConfig, writeStyleConfig, checkChapterStyle, summarizeStyleCheck } from './lib/style-config.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2114,6 +2116,72 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'foreshadow-audit' && req.method === 'GET') {
+          // 3.42.0 伏笔生命周期审查（逾期/矛盾/缺章/长期挂起）
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const stale = Number(url.searchParams.get('stale')) || 20
+          const out = auditForeshadows(novelDir, { staleAfter: stale })
+          json(res, 200, { ...out, summary: summarizeForeshadow(out) })
+          return
+        }
+
+        if (route === 'style-config' && req.method === 'GET') {
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          json(res, 200, { ok: true, config: loadStyleConfig(novelDir) })
+          return
+        }
+
+        if (route === 'style-config' && req.method === 'POST') {
+          // 生成/覆盖 style_config.json
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const cfg = writeStyleConfig(novelDir, loadStyleConfig(novelDir))
+          json(res, 200, { ok: true, config: cfg })
+          return
+        }
+
+        if (route === 'style-check' && req.method === 'GET') {
+          // 按文风基准校验章节：单章（file）或整本
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const cfg = loadStyleConfig(novelDir)
+          const chDir = path.join(novelDir, 'chapters')
+          // 角色名清单
+          const names = []
+          try {
+            const cdir = path.join(novelDir, 'characters')
+            for (const f of readdirSync(cdir)) {
+              if (!/\.md$/i.test(f)) continue
+              let raw = ''
+              try { raw = readFileSync(path.join(cdir, f), 'utf8') } catch { continue }
+              const m = /^\s*name\s*:\s*(.+)$/m.exec(raw) || /^\s*title\s*:\s*(.+)$/m.exec(raw)
+              if (m) names.push(m[1].trim().replace(/["']/g, ''))
+            }
+          } catch { /* 无 characters */ }
+          const file = url.searchParams.get('file')
+          if (file) {
+            const stem = String(file).replace(/\.md$/i, '')
+            let ch = null
+            try { ch = readChapter(novelDir, stem + '.md') } catch { ch = null }
+            if (!ch || ch.ok === false) { json(res, 404, { ok: false, error: '章节不存在' }); return }
+            const r = checkChapterStyle(String(ch.body || ''), cfg, { characterNames: names })
+            json(res, 200, { ...r, file: stem, config: cfg })
+            return
+          }
+          const rows = []
+          try {
+            for (const f of readdirSync(chDir)) {
+              if (!/\.md$/i.test(f)) continue
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { continue }
+              if (!ch || ch.ok === false) continue
+              const r = checkChapterStyle(String(ch.body || ''), cfg, { characterNames: names })
+              if (!r.ok) rows.push({ file: f, issues: r.issues, dialogueRatio: r.dialogueRatio })
+            }
+          } catch { /* 无目录 */ }
+          json(res, 200, { ok: true, config: cfg, failing: rows.length, rows: rows.slice(0, 30), characterNames: names.length })
+          return
+        }
+
         if (route === 'ai-taste' && req.method === 'GET') {
           // 3.41.0 AI 味评分：单章或整本
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2325,6 +2393,24 @@ export async function registerCreatorRoutes(ctx) {
           let dialogueQuoteMode = 'warn'
           let aiTasteMode = 'warn'
           let aiTasteMin = 55
+          let foreshadowMode = 'warn'
+          let styleMode = 'warn'
+          // 伏笔与文风基准在发布循环外只算一次
+          const foreshadowAudit = auditForeshadows(novelDir, { staleAfter: 20 })
+          const styleCfg = loadStyleConfig(novelDir)
+          const styleNames = (() => {
+            const out = []
+            try {
+              const cdir = path.join(novelDir, 'characters')
+              for (const f of readdirSync(cdir)) {
+                if (!/\.md$/i.test(f)) continue
+                const raw = readFileSync(path.join(cdir, f), 'utf8')
+                const m = /^\s*name\s*:\s*(.+)$/m.exec(raw) || /^\s*title\s*:\s*(.+)$/m.exec(raw)
+                if (m) out.push(m[1].trim().replace(/["']/g, ''))
+              }
+            } catch { /* 无 characters */ }
+            return out
+          })()
           try {
             const projRaw = readFileSync(path.join(novelDir, 'project.yml'), 'utf8')
             const mm = /^\s*dialogue_quote_mode\s*:\s*(\w+)/m.exec(projRaw)
@@ -2333,6 +2419,10 @@ export async function registerCreatorRoutes(ctx) {
             if (am && /^(block|warn)$/i.test(am[1])) aiTasteMode = am[1].toLowerCase()
             const as2 = /^\s*ai_taste_min\s*:\s*(\d+)/m.exec(projRaw)
             if (as2) { const v = Number(as2[1]); if (v > 0 && v <= 100) aiTasteMin = v }
+            const fm2 = /^\s*foreshadow_mode\s*:\s*(\w+)/m.exec(projRaw)
+            if (fm2 && /^(block|warn)$/i.test(fm2[1])) foreshadowMode = fm2[1].toLowerCase()
+            const sm2 = /^\s*style_mode\s*:\s*(\w+)/m.exec(projRaw)
+            if (sm2 && /^(block|warn)$/i.test(sm2[1])) styleMode = sm2[1].toLowerCase()
           } catch { /* 用默认 */ }
           const results = []
           for (const item of sorted) {
@@ -2360,6 +2450,12 @@ export async function registerCreatorRoutes(ctx) {
             const dq = scanDialogueQuotes(bodyText)
             const dqGate = gateDialogueQuotes(dq, dialogueQuoteMode)
             if (!dqGate.pass) { results.push({ file, ok: false, error: dqGate.reason, quoteViolations: dq.violations.slice(0, 5) }); continue }
+            // 3.42.0 伏笔门禁：高危逾期未回收时按 foreshadow_mode 处理。
+            const fsGate = gateForeshadow(foreshadowAudit, foreshadowMode)
+            if (!fsGate.pass) { results.push({ file, ok: false, error: fsGate.reason, kind: 'foreshadow' }); continue }
+            // 3.42.0 文风门禁：按 style_config 校验（对话占比/具名角色/嘴仗）
+            const sc = checkChapterStyle(bodyText, styleCfg, { characterNames: styleNames })
+            if (!sc.ok && styleMode === 'block') { results.push({ file, ok: false, error: '文风偏规：' + sc.issues.map((i) => i.message).join('；'), kind: 'style' }); continue }
             // 3.41.0 AI 味门禁：项目设置 ai_taste_mode=block 且评分低于阈值时拒发。
             const taste = analyzeAiTaste(bodyText)
             const tasteGate = gateAiTaste(taste, aiTasteMode, aiTasteMin)

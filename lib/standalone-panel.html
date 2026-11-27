@@ -119,7 +119,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.41.0';
+var BUILD = '3.42.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -155,7 +155,9 @@ var BUILD = '3.41.0';
             // 3.40.0 对话引号扫描结果
             dq: null, dqErr: '',
             // 3.41.0 AI 味检测结果
-            taste: null, tasteOne: null, tasteErr: '' };
+            taste: null, tasteOne: null, tasteErr: '',
+            // 3.42.0 伏笔审查 / 文风基准
+            fs: null, fsErr: '', styleCfg: null, styleRows: null };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -835,6 +837,8 @@ var BUILD = '3.41.0';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
+    out += vForeshadow();
+    out += vStyleCheck();
     out += vAiTaste();
     out += vDialogueQuote();
     out += vConsistency();
@@ -890,6 +894,7 @@ var BUILD = '3.41.0';
   }
 
   function bindAudit() {
+    bindForeshadowAndStyle();
     bindAiTaste();
     bindDialogueQuote();
     var aa = $('auditAll');
@@ -1214,6 +1219,53 @@ var BUILD = '3.41.0';
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
   }
+  /* 3.42.0 伏笔生命周期审查：逾期/状态矛盾/目标章缺失/长期挂起。 */
+  function vForeshadow() {
+    var f = S.fs || {}
+    var list = f.issues || []
+    var head = '<div class="card"><h3>伏笔审查 <span class="badge">生命周期</span>' +
+      (f.high != null ? '<span class="pill ' + (f.high ? 'bad' : 'ok') + '">' + (f.high ? f.high + ' 项高危' : '无高危') + '</span>' : '') + '</h3>'
+    if (S.fsErr) head += '<div class="err">读取失败：' + esc(S.fsErr) + '</div>'
+    head += '<div class="muted" style="margin-bottom:6px">查四类：① 计划回收章已写完仍没回收（逾期）② 状态标 resolved 却没写回收章 ③ 计划章文件不存在 ④ 埋设后超过 20 章未回收。' +
+      '项目 project.yml 里 <code>foreshadow_mode: block</code> 可切为拒发。</div>'
+    if (list.length) {
+      head += '<div style="max-height:34vh;overflow-y:auto">' + list.slice(0, 40).map(function (x) {
+        var col = x.severity === 'high' ? '#ff8a8a' : '#e8c46a'
+        return '<div style="border-bottom:1px solid #262b33;padding:6px 0;font-size:12px">' +
+          '<b style="color:' + col + '">' + esc(x.id) + '</b> ' + esc((x.title || '').slice(0, 24)) +
+          '<div class="muted" style="margin-top:2px">' + esc(x.message) + '</div></div>'
+      }).join('') + '</div>'
+    } else if (f.total != null) {
+      head += '<div class="ok">✅ ' + esc(f.summary || '全部合规') + '</div>'
+    } else {
+      head += '<div class="muted">点下方按钮开始审查</div>'
+    }
+    head += '<div class="btnrow" style="margin-top:6px"><button type="button" id="fsScan" class="sm pri">审查伏笔台账</button></div>'
+    return head + '</div>'
+  }
+  /* 3.42.0 文风基准：style.md → style_config.json，按配置校验章节。 */
+  function vStyleCheck() {
+    var cfg = S.styleCfg || {}
+    var c = cfg.config || {}
+    var rows = S.styleRows || {}
+    var head = '<div class="card"><h3>文风基准 <span class="badge">' + esc(c.source || '未生成') + '</span>' +
+      (rows.failing != null ? '<span class="pill ' + (rows.failing ? 'bad' : 'ok') + '">' + rows.failing + ' 章偏规</span>' : '') + '</h3>'
+    head += '<div class="muted" style="margin-bottom:6px">从 style.md 抽出可量化规矩：对话占比 ' +
+      JSON.stringify(c.dialogue_ratio || [0.15, 0.45]).replace(/[\[\]]/g, '') + ' · 每 ' +
+      (c.named_character_every_n_chapters || 3) + ' 章具名角色 · 每 ' + (c.verbal_fight_every_n_chapters || 3) + ' 章嘴仗' +
+      (c.banned && c.banned.length ? ' · 禁忌 ' + c.banned.length + ' 条' : '') + '</div>'
+    if (rows.rows && rows.rows.length) {
+      head += '<div style="max-height:30vh;overflow-y:auto">' + rows.rows.slice(0, 25).map(function (r) {
+        return '<div class="row" style="border-bottom:1px solid #262b33;padding:5px 0">' +
+          '<span class="k" style="min-width:auto">' + esc(r.file) + '</span>' +
+          '<span class="v" style="font-size:12px">' + esc((r.issues || []).map(function (i) { return i.message }).join('；')) + '</span></div>'
+      }).join('') + '</div>'
+    }
+    head += '<div class="btnrow" style="margin-top:6px">' +
+      '<button type="button" id="styleGen" class="sm">生成 style_config.json</button>' +
+      '<button type="button" id="styleScan" class="sm pri">按基准校验全书</button></div>'
+    return head + '</div>'
+  }
   /* 3.41.0 AI 味量化检测：六指标打分（句长/套话/段落/对话/重复/极差）。 */
   function vAiTaste() {
     var t = S.taste || {}
@@ -1250,6 +1302,31 @@ var BUILD = '3.41.0';
         }).join('') + '</div>'
     }
     return head + '</div>';
+  }
+  function bindForeshadowAndStyle() {
+    var f1 = $('fsScan')
+    if (f1) f1.addEventListener('click', function () {
+      note('审查伏笔中…')
+      get('foreshadow-audit', { path: S.ws || '' }).then(function (d) {
+        S.fs = d || {}; S.fsErr = d && d.ok === false ? d.error : ''; render()
+        note('完成：' + ((d && d.issues) || []).length + ' 项问题')
+      }).catch(function (e) { note('审查失败：' + ((e && e.message) || e)) })
+    })
+    var sg = $('styleGen')
+    if (sg) sg.addEventListener('click', function () {
+      postJson('style-config', { path: S.ws || '' }).then(function (d) {
+        S.styleCfg = { config: (d && d.config) || {} }; render()
+        note('已生成 style_config.json')
+      }).catch(function (e) { note('生成失败：' + ((e && e.message) || e)) })
+    })
+    var ss = $('styleScan')
+    if (ss) ss.addEventListener('click', function () {
+      note('校验中…')
+      get('style-check', { path: S.ws || '' }).then(function (d) {
+        S.styleCfg = { config: (d && d.config) || {} }; S.styleRows = d || {}; render()
+        note('完成：' + ((d && d.failing) || 0) + ' 章偏规')
+      }).catch(function (e) { note('校验失败：' + ((e && e.message) || e)) })
+    })
   }
   function bindAiTaste() {
     var s1 = $('tasteScan')
