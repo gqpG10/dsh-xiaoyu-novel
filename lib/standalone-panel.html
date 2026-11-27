@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.49.0';
+var BUILD = '3.50.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -537,7 +537,8 @@ var BUILD = '3.49.0';
     }).join('') || '<div class="muted">（无）</div>') + weekBars() + '</div>' + heatGrid();
     // 3.48.2 真·书库放最前面：主人之前一直找不到"换哪本书"——旧「书架」其实是工作区列表，
     // 两本书同属一个工作区时它只显示一项，看起来就是"选不了"。
-    return vBookShelf() + setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
+    // 3.50.0 记忆同步归概览（全书覆盖率的台账，进面板就该看见）
+    return vBookShelf() + vMemorySync() + setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
       ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
     ]) + '</div>' +
@@ -906,26 +907,17 @@ var BUILD = '3.49.0';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
-    // 3.46.0 面板重组：把 7 张卡拆成「质量」「结构」两组，可折叠；
-    // 顶部一键全面检查，出总报告（省得一张一张点按钮）。
-    // 3.49.0 发布预检搬到「章节」tab、角色分级搬到「角色」tab（放在"体检"里没人找得到）
-    out += vCrossChapter();
+    // 3.50.0 功能归位：体检只留「全书级」的四张卡，其余各自回自己的 tab。
+    //   记忆同步 → 概览｜四线词&卷纲、节奏 → 项目｜伏笔审查 → 伏笔
+    //   禁忌黑名单 → 设定｜文风基准 → 风格｜AI 味、对话引号 → 章节
     out += '<div class="btnrow" style="margin-bottom:8px">' +
       '<button type="button" id="runAllChecks" class="sm pri">一键全面检查</button>' +
-      '<button type="button" id="groupQuality" class="sm">' + (S.groupQuality ? '▼' : '▶') + ' 质量（文风/AI味/引号）</button>' +
-      '<button type="button" id="groupStruct" class="sm">' + (S.groupStruct ? '▼' : '▶') + ' 结构（记忆/四线/伏笔/黑名单）</button></div>';
-    if (S.groupStruct) {
-      out += vBookShelf();
-    out += vMemorySync();
-      out += vFourLinesVolumes();
-      out += vPacing();
-      out += vForeshadow();
-      out += vBlacklist();
-    }
+      '<button type="button" id="groupQuality" class="sm">' + (S.groupQuality ? '▼' : '▶') + ' 章节质量汇总</button></div>';
+    out += vCrossChapter();
     if (S.groupQuality) {
-      out += vStyleCheck();
       out += vAiTaste();
       out += vDialogueQuote();
+      out += vStyleCheck();
     }
     out += vConsistency();
     out += vQualityTrend();
@@ -2158,8 +2150,10 @@ var BUILD = '3.49.0';
   }
   function vWorld(d) {
     var list = d.world || [];
-    if (!list.length) return vBibleCard() + vWorldExtra() + '<div class="card"><div class="muted">还没有设定</div></div>';
-    return vBibleCard() + vWorldExtra() + list.map(function (w) {
+    // 3.50.0 禁忌黑名单归设定（它属于世界规则的一部分）
+    var blCard = vBlacklist();
+    if (!list.length) return blCard + vBibleCard() + vWorldExtra() + '<div class="card"><div class="muted">还没有设定</div></div>';
+    return blCard + vBibleCard() + vWorldExtra() + list.map(function (w) {
       return '<div class="card"><h3>' + esc(w.name || w.file) +
         (w.category ? '<span class="pill">' + esc(w.category) + '</span>' : '') +
         (w.file ? '<button type="button" class="sm editcard" data-rel="world/' + esc(w.file) + '" data-title="' + esc(w.name || w.file) + '" style="margin-left:auto">编辑</button>' : '') + '</h3>' +
@@ -2170,8 +2164,10 @@ var BUILD = '3.49.0';
   /* ── 伏笔（可改状态） ── */
   function vForeshadows(d) {
     var list = d.foreshadows || [];
-    if (!list.length) return '<div class="card"><div class="muted">还没有伏笔</div></div>';
-    return vForeLanes(list) + '<div class="card"><h3>伏笔 ' + list.length + ' 条</h3>' + list.map(function (f, i) {
+    // 3.50.0 伏笔审查（逾期/矛盾/缺章/挂起）归伏笔 tab —— 在体检里没人会去找
+    var auditCard = vForeshadow();
+    if (!list.length) return auditCard + '<div class="card"><div class="muted">还没有伏笔</div></div>';
+    return auditCard + vForeLanes(list) + '<div class="card"><h3>伏笔 ' + list.length + ' 条</h3>' + list.map(function (f, i) {
       var opts = Object.keys(FORE_LABEL).map(function (k) {
         return '<option value="' + k + '"' + (f.status === k ? ' selected' : '') + '>' + FORE_LABEL[k] + '</option>';
       }).join('');
@@ -2993,7 +2989,8 @@ var BUILD = '3.49.0';
         '<button type="button" id="presetBack" class="sm">返回列表</button></div>' +
         '<div class="muted" style="margin-top:6px">套用只改 style.md 的「## 语言」节，其他节不动。</div></div>';
     }
-    return '<div class="card"><h3>写作风格基准' + (st.found ? '' : ' <span class="badge">尚未创建</span>') + '</h3>' +
+    // 3.50.0 文风基准（style.md → style_config.json + 逐章校验）归风格 tab
+    return vStyleCheck() + '<div class="card"><h3>写作风格基准' + (st.found ? '' : ' <span class="badge">尚未创建</span>') + '</h3>' +
       presets +
       '<div class="muted" style="margin-bottom:6px">点卡片预览档位内容，确认后再点「套用此档位」。</div>' +
       '<div class="btnrow"><button type="button" id="styleSave" class="sm pri">' + (st.found ? '保存' : '以模板创建并保存') + '</button></div>' +
@@ -3120,7 +3117,9 @@ var BUILD = '3.49.0';
       '<div class="row"><span class="k">模式</span><span class="v"><select id="pMode" style="width:100%">' + modeOpts + '</select></span></div>' +
       '<div class="row"><span class="k">简介</span><span class="v"><textarea id="pDesc" class="small" style="width:100%">' + esc(v.description || '') + '</textarea></span></div>' +
       '<div class="btnrow"><button type="button" id="projSave" class="sm pri">保存</button>' +
-      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vPack() + vCoverPrompt() + vRadar() + vBeats();
+      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' +
+      // 3.50.0 四线/卷纲/节奏都是"项目结构"层面的规划，归项目 tab
+      vFourLinesVolumes() + vPacing() + vPack() + vCoverPrompt() + vRadar() + vBeats();
   }
   function bindProj() {
     bindPack();
@@ -4001,6 +4000,11 @@ var BUILD = '3.49.0';
     if (S.tab === 'search') bindSearch();
     if (S.tab === 'overview') bindSnow();
     if (S.tab === 'gate') bindGate();
+    // 3.50.0 卡片搬tab后，按钮绑定必须跟着走：这四个绑定函数对不存在的元素是安全的
+    // （每个都是 if (el) el.addEventListener(...)），所以在任何 tab 都调一遍最稳。
+    bindForeshadowAndStyle();
+    bindAiTaste();
+    bindDialogueQuote();
     if (S.tab === 'audit') { bindAudit(); bindTodo(); }
     if (S.tab === 'todo') bindTodo();
     if (S.tab === 'context') { var cf = S.ctxFile || (S.ctxFile = chapterFileDefault()); ensureCtxPack(cf); ensureBlueprint(cf); bindContext(); bindBlueprint(cf); }

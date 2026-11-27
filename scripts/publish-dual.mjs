@@ -12,7 +12,7 @@ const GH_TOKEN = process.env.XIAOYU_PUBLISH_TOKEN || embeddedGithubToken();
 const GITEE_TOKEN = "12a8cf4180de50bf2ac8a97c72f7e33a";
 const GH_REPO = "gqpG10/dsh-xiaoyu-novel";
 const GITEE_REPO = "gqp20031110/dsh-xiaoyu-novel";
-const VERSION = "3.49.0";
+const VERSION = "3.50.0";
 const TAG = "v" + VERSION;
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
 

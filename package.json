@@ -1,6 +1,6 @@
 {
   "name": "dsh-xiaoyu-novel",
-  "version": "3.49.0",
+  "version": "3.50.0",
   "description": "小鱼创作台 —— DSH 网文创作辅助插件：AI 主编 + 六帮手编排（大纲/写手/去AI味/审校/设定/考据），逐章强制去 AI 味门禁，novel/ 结构化文件为数据库",
   "type": "module",
   "license": "MIT",
