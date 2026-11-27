@@ -133,6 +133,8 @@ import { auditForeshadows, gateForeshadow, summarizeForeshadow } from './lib/for
 import { loadStyleConfig, writeStyleConfig, checkChapterStyle, summarizeStyleCheck } from './lib/style-config.mjs'
 import { checkFourLines, payoffDensity, loadFourLines, summarizePacing } from './lib/pacing-core.mjs'
 import { loadBlacklist, scanBlacklist, gateBlacklist } from './lib/blacklist.mjs'
+import { suggestFourLines, writeFourLines, readFourLinesRaw } from './lib/four-lines-gen.mjs'
+import { auditVolumes, summarizeVolumes } from './lib/volume-lines.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2115,6 +2117,60 @@ export async function registerCreatorRoutes(ctx) {
             return { problems }
           })
           json(res, 200, cons)
+          return
+        }
+
+        if (route === 'four-lines' && req.method === 'GET') {
+          // 3.44.0 四线信号词：现有原文 + 自动挖的候选
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const chDir = path.join(novelDir, 'chapters')
+          const chapters = []
+          try {
+            for (const f of readdirSync(chDir).filter((x) => /\.md$/i.test(x)).sort()) {
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { continue }
+              if (ch && ch.ok !== false) chapters.push({ file: f, text: String(ch.body || '') })
+            }
+          } catch { /* 无目录 */ }
+          const sug = suggestFourLines(chapters, { novelDir })
+          json(res, 200, { ok: true, existing: readFourLinesRaw(novelDir), suggestion: sug })
+          return
+        }
+
+        if (route === 'four-lines' && req.method === 'POST') {
+          // 生成 four_lines.yml（已存在则需 force）
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const chDir = path.join(novelDir, 'chapters')
+          const chapters = []
+          try {
+            for (const f of readdirSync(chDir).filter((x) => /\.md$/i.test(x)).sort()) {
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { continue }
+              if (ch && ch.ok !== false) chapters.push({ file: f, text: String(ch.body || '') })
+            }
+          } catch { /* 无目录 */ }
+          const sug = suggestFourLines(chapters, { novelDir })
+          const out = writeFourLines(novelDir, sug, { force: body.force === true })
+          json(res, out.ok ? 200 : 409, { ...out, suggestion: sug })
+          return
+        }
+
+        if (route === 'volumes' && req.method === 'GET') {
+          // 3.44.0 卷纲四线校验 + 按卷爽点密度
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const requireLines = url.searchParams.get('requireLines') === '1'
+          const chDir = path.join(novelDir, 'chapters')
+          const chapters = []
+          try {
+            for (const f of readdirSync(chDir).filter((x) => /\.md$/i.test(x)).sort()) {
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { continue }
+              if (ch && ch.ok !== false) chapters.push({ file: f, text: String(ch.body || '').slice(0, 3000) })
+            }
+          } catch { /* 无目录 */ }
+          const out = auditVolumes(novelDir, chapters, { requireLines })
+          json(res, 200, { ...out, summary: summarizeVolumes(out) })
           return
         }
 
