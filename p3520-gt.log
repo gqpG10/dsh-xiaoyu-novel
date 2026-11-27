@@ -1,0 +1,23 @@
+files: 279
+gitee progress: 25 / 279
+gitee progress: 50 / 279
+gitee progress: 75 / 279
+gitee progress: 100 / 279
+gitee progress: 125 / 279
+gitee progress: 150 / 279
+WARN templates/novel/chapters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/characters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/exports/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/outlines/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/research/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/science/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 175 / 279
+WARN templates/novel/world/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 200 / 279
+gitee progress: 225 / 279
+gitee progress: 250 / 279
+gitee files created: 3 updated: 269
+gitee tag: 201 {"name":"v3.52.0","message":"","commit":{"sha":"2d871dad2557eedbf3756e8179c12d1ef6b771d5","date":"2026-11-27T17:10:05+00:00"},"tagger":null}
+gitee release: 201 {"id":1377547,"tag_name":"v3.52.0","target_commitish":"2d871dad2557eedbf3756e8179c12d1ef6b771d5","prerelease":false,"name":"小鱼创作台 v3.52.0","body":"小鱼创作台 v3.52.0\n\n安装：dsha-plugin i
+gitee asset: 201 {"id":3860971,"name":"dsh-xiaoyu-novel-3.52.0.zip","size":1041658,"uploader":{"id":17920814,"login":"gqp20031110","name":"gqpG10","avatar_url":"https://foruda.g
+gitee ok

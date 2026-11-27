@@ -126,6 +126,7 @@ import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats, qual
 import { qualityTrend } from './lib/quality-trend.mjs'
 import { buildCoverPrompt } from './lib/cover-prompt.mjs'
 import { packProject, unpackProject } from './lib/project-pack.mjs'
+import { exportPortable } from './lib/portable.mjs'
 import { scanDialogueQuotes, gateDialogueQuotes, summarizeDialogueQuotes } from './lib/dialogue-quote.mjs'
 import { analyzeAiTaste, gateAiTaste, summarizeAiTaste } from './lib/ai-taste.mjs'
 import { checkSixBeats } from './lib/chapter-blueprint.mjs'
@@ -2536,6 +2537,35 @@ export async function registerCreatorRoutes(ctx) {
           const chrome = findChrome()
           json(res, 200, { ok: true, session: sess, chrome: chrome || null, canAuto: !!chrome })
           return
+        }
+
+        if (route === 'portable-export' && req.method === 'GET') {
+          // 3.52.0 DSH 环境搬家（与「打包迁移」互补：那个搬书稿，这个搬整个 DSH 环境）。
+          // 含配置/预设/技能包/工作区列表；渠道 key 由 secrets=1 决定是否打包。
+          try {
+            const home = resolveDshHome()
+            const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+            const tmpOut = path.join(home, 'xiaoyu-portable-' + stamp + '.tar.gz')
+            const out = exportPortable({
+              home,
+              profile: url.searchParams.get('profile') || 'web',
+              secrets: url.searchParams.get('secrets') === '1',
+              out: tmpOut,
+            })
+            const buf = readFileSync(out.out)
+            res.writeHead(200, {
+              'Content-Type': 'application/gzip',
+              'Content-Disposition': 'attachment; filename="xiaoyu-dsh-' + stamp + '.tar.gz"',
+              'Content-Length': buf.length,
+              'X-Portable-Files': String(out.files),
+            })
+            res.end(buf)
+            try { unlinkSync(out.out) } catch { /* 清理失败不拦 */ }
+            return
+          } catch (e) {
+            json(res, 500, { ok: false, error: '搬迁包生成失败：' + String((e && e.message) || e) })
+            return
+          }
         }
 
         if (route === 'pack-download' && req.method === 'GET') {
