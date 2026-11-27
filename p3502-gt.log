@@ -25,3 +25,9 @@ WARN templates/novel/world/.gitkeep 400 {"messages":["content is empty"]}
 gitee progress: 175 / 270
 gitee progress: 200 / 270
 gitee progress: 225 / 270
+gitee progress: 250 / 270
+gitee files created: 0 updated: 253
+gitee tag: 201 {"name":"v3.50.2","message":"","commit":{"sha":"d3905536c9fe02cbeddb7bbe5db0cdbdda9be6dd","date":"2026-11-27T16:27:14+00:00"},"tagger":null}
+gitee release: 201 {"id":1377432,"tag_name":"v3.50.2","target_commitish":"d3905536c9fe02cbeddb7bbe5db0cdbdda9be6dd","prerelease":false,"name":"小鱼创作台 v3.50.2","body":"小鱼创作台 v3.50.2\n\n安装：dsha-plugin i
+gitee asset: 201 {"id":3860587,"name":"dsh-xiaoyu-novel-3.50.2.zip","size":1029060,"uploader":{"id":17920814,"login":"gqp20031110","name":"gqpG10","avatar_url":"https://foruda.g
+gitee ok
