@@ -119,7 +119,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.40.0';
+var BUILD = '3.41.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -153,7 +153,9 @@ var BUILD = '3.40.0';
             // 3.38.0 一键登录的进度提示
             fqLoginMsg: '',
             // 3.40.0 对话引号扫描结果
-            dq: null, dqErr: '' };
+            dq: null, dqErr: '',
+            // 3.41.0 AI 味检测结果
+            taste: null, tasteOne: null, tasteErr: '' };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -833,6 +835,7 @@ var BUILD = '3.40.0';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
+    out += vAiTaste();
     out += vDialogueQuote();
     out += vConsistency();
     out += vQualityTrend();
@@ -887,6 +890,7 @@ var BUILD = '3.40.0';
   }
 
   function bindAudit() {
+    bindAiTaste();
     bindDialogueQuote();
     var aa = $('auditAll');
     if (aa) aa.addEventListener('click', function () {
@@ -1209,6 +1213,61 @@ var BUILD = '3.40.0';
     }).join('');
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
+  }
+  /* 3.41.0 AI 味量化检测：六指标打分（句长/套话/段落/对话/重复/极差）。 */
+  function vAiTaste() {
+    var t = S.taste || {}
+    var worst = t.worst || []
+    var head = '<div class="card"><h3>AI 味检测 <span class="badge">六指标量化</span>' +
+      (t.average != null ? '<span class="pill ' + (t.average >= 85 ? 'ok' : t.average >= 70 ? '' : 'bad') + '">均分 ' + t.average + '</span>' : '') +
+      '</h3>';
+    if (S.tasteErr) head += '<div class="err">读取失败：' + esc(S.tasteErr) + '</div>';
+    head += '<div class="muted" style="margin-bottom:6px">六项指标：句长标准差 ≥8 · 句长极差 ≥25 · AI 套话 ≤3/千字 · ' +
+      '段落均匀度 ≥0.35 · 对话占比 15%~45% · 重复片段 ≤2%。评分 A≥85 / B≥70 / C≥50 / D<50。' +
+      '项目 project.yml 里 <code>ai_taste_mode: block</code> + <code>ai_taste_min: 70</code> 可设为拒发。</div>';
+    if (worst.length) {
+      head += '<div style="max-height:32vh;overflow-y:auto">' + worst.map(function (c) {
+        var cls = c.score >= 85 ? '#49d17d' : c.score >= 70 ? '#e8c46a' : '#ff8a8a'
+        return '<div class="row" style="border-bottom:1px solid #262b33;padding:5px 0">' +
+          '<span class="k" style="min-width:auto">' + esc(c.file) + '</span>' +
+          '<span class="v" style="font-size:12px"><b style="color:' + cls + '">' + c.score + '</b> ' +
+          esc(c.grade || '') + ' · ' + esc((c.issues || []).join('/') || '全部达标') + '</span></div>'
+      }).join('') + '</div>';
+    } else if (t.count === 0) {
+      head += '<div class="muted">还没有章节可检测</div>';
+    } else {
+      head += '<div class="muted">点下方按钮开始分析</div>';
+    }
+    head += '<div class="btnrow" style="margin-top:6px"><button type="button" id="tasteScan" class="sm pri">检测全书 AI 味</button>' +
+      '<button type="button" id="tasteCur" class="sm">只测当前章</button></div>';
+    if (S.tasteOne) {
+      var o = S.tasteOne
+      head += '<div style="margin-top:8px;padding:8px;background:#151b23;border-radius:8px;font-size:12px">' +
+        '<b>当前章评分：' + o.score + ' ' + esc(o.grade) + '</b><br>' +
+        (o.metrics || []).map(function (m) {
+          return '<span style="color:' + (m.ok ? '#49d17d' : '#ff8a8a') + '">' + (m.ok ? '✔' : '✘') + '</span> ' +
+            esc(m.label) + ' = ' + esc(String(m.value)) + '（目标 ' + esc(m.target) + '）<br>'
+        }).join('') + '</div>'
+    }
+    return head + '</div>';
+  }
+  function bindAiTaste() {
+    var s1 = $('tasteScan')
+    if (s1) s1.addEventListener('click', function () {
+      note('分析中…')
+      get('ai-taste', { path: S.ws || '' }).then(function (d) {
+        S.taste = d || {}; S.tasteErr = d && d.ok === false ? d.error : ''; render()
+        note('完成：均分 ' + ((d && d.average) || 0))
+      }).catch(function (e) { note('分析失败：' + ((e && e.message) || e)) })
+    })
+    var s2 = $('tasteCur')
+    if (s2) s2.addEventListener('click', function () {
+      var cur = S.cur || ''
+      if (!cur) { note('先在章节列表点开一章'); return }
+      get('ai-taste', { path: S.ws || '', file: cur }).then(function (d) {
+        S.tasteOne = d || null; render(); note('当前章评分 ' + ((d && d.score) || 0))
+      }).catch(function (e) { note('分析失败：' + ((e && e.message) || e)) })
+    })
   }
   /* 3.40.0 对话引号：人物对话只能用双引号（“” 或 ""），直角引号「」与单引号‘’判违规。 */
   function vDialogueQuote() {

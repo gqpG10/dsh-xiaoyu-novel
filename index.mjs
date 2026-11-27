@@ -127,6 +127,8 @@ import { qualityTrend } from './lib/quality-trend.mjs'
 import { buildCoverPrompt } from './lib/cover-prompt.mjs'
 import { packProject, unpackProject } from './lib/project-pack.mjs'
 import { scanDialogueQuotes, gateDialogueQuotes, summarizeDialogueQuotes } from './lib/dialogue-quote.mjs'
+import { analyzeAiTaste, gateAiTaste, summarizeAiTaste } from './lib/ai-taste.mjs'
+import { checkSixBeats } from './lib/chapter-blueprint.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2112,6 +2114,60 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'ai-taste' && req.method === 'GET') {
+          // 3.41.0 AI 味评分：单章或整本
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const file = url.searchParams.get('file')
+          if (file) {
+            const stem = String(file).replace(/\.md$/i, '')
+            let ch = null
+            try { ch = readChapter(novelDir, stem + '.md') } catch { ch = null }
+            if (!ch || ch.ok === false) { json(res, 404, { ok: false, error: '章节不存在' }); return }
+            const r = analyzeAiTaste(String(ch.body || ''))
+            json(res, 200, { ...r, file: stem, summary: summarizeAiTaste(r) })
+            return
+          }
+          const chDir = path.join(novelDir, 'chapters')
+          const agg = []
+          try {
+            for (const f of readdirSync(chDir)) {
+              if (!/\.md$/i.test(f)) continue
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { ch = null }
+              if (!ch || ch.ok === false) continue
+              const r = analyzeAiTaste(String(ch.body || ''))
+              agg.push({ file: f, score: r.score, grade: r.grade, issues: r.issues.map((m) => m.label), chars: r.stats.chars })
+            }
+          } catch { /* 无目录 */ }
+          agg.sort((a, b) => a.score - b.score)
+          const avg = agg.length ? Math.round(agg.reduce((s, x) => s + x.score, 0) / agg.length) : 0
+          json(res, 200, { ok: true, average: avg, count: agg.length, worst: agg.slice(0, 15) })
+          return
+        }
+
+        if (route === 'six-beats' && req.method === 'GET') {
+          // 3.41.0 六节拍检查：读章纲，看六个节拍字段齐不齐
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const outDir = path.join(novelDir, 'blueprints')
+          const rows = []
+          try {
+            for (const f of readdirSync(outDir)) {
+              if (!/\.md$/i.test(f)) continue
+              let raw = ''
+              try { raw = readFileSync(path.join(outDir, f), 'utf8') } catch { continue }
+              const data = {}
+              for (const line of raw.split(/\r?\n/)) {
+                const m = /^\s*(goal|conflict|hook|cast|beat_open|beat_progress|beat_payoff|beat_setup)\s*:\s*(.*)$/.exec(line)
+                if (m) data[m[1]] = m[2].trim()
+              }
+              const chk = checkSixBeats(data, 'six')
+              rows.push({ file: f, pass: chk.pass, missing: chk.missing, message: chk.message })
+            }
+          } catch { /* 无 blueprints 目录 */ }
+          json(res, 200, { ok: true, total: rows.length, failing: rows.filter((r) => !r.pass).length, rows })
+          return
+        }
+
         if (route === 'dialogue-quote' && req.method === 'GET') {
           // 3.40.0 对话引号检查：单章（file）或整本汇总
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2267,10 +2323,16 @@ export async function registerCreatorRoutes(ctx) {
           })
           // 对话引号策略：项目 project.yml 里 dialogue_quote_mode: block|warn（默认 warn）
           let dialogueQuoteMode = 'warn'
+          let aiTasteMode = 'warn'
+          let aiTasteMin = 55
           try {
             const projRaw = readFileSync(path.join(novelDir, 'project.yml'), 'utf8')
             const mm = /^\s*dialogue_quote_mode\s*:\s*(\w+)/m.exec(projRaw)
             if (mm && /^(block|warn)$/i.test(mm[1])) dialogueQuoteMode = mm[1].toLowerCase()
+            const am = /^\s*ai_taste_mode\s*:\s*(\w+)/m.exec(projRaw)
+            if (am && /^(block|warn)$/i.test(am[1])) aiTasteMode = am[1].toLowerCase()
+            const as2 = /^\s*ai_taste_min\s*:\s*(\d+)/m.exec(projRaw)
+            if (as2) { const v = Number(as2[1]); if (v > 0 && v <= 100) aiTasteMin = v }
           } catch { /* 用默认 */ }
           const results = []
           for (const item of sorted) {
@@ -2298,6 +2360,10 @@ export async function registerCreatorRoutes(ctx) {
             const dq = scanDialogueQuotes(bodyText)
             const dqGate = gateDialogueQuotes(dq, dialogueQuoteMode)
             if (!dqGate.pass) { results.push({ file, ok: false, error: dqGate.reason, quoteViolations: dq.violations.slice(0, 5) }); continue }
+            // 3.41.0 AI 味门禁：项目设置 ai_taste_mode=block 且评分低于阈值时拒发。
+            const taste = analyzeAiTaste(bodyText)
+            const tasteGate = gateAiTaste(taste, aiTasteMode, aiTasteMin)
+            if (!tasteGate.pass) { results.push({ file, ok: false, error: tasteGate.reason, aiScore: taste.score, aiIssues: taste.issues }); continue }
             const paras = String(bodyText).replace(/\r\n/g, '\n').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
             const contentHtml = paras.map((p) => '<p>' + escHtml(p) + '</p>').join('')
             // 自检：正文首行不该是 frontmatter 字段（剥不净时直接拒发）
