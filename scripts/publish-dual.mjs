@@ -12,7 +12,7 @@ const GH_TOKEN = process.env.XIAOYU_PUBLISH_TOKEN || embeddedGithubToken();
 const GITEE_TOKEN = "12a8cf4180de50bf2ac8a97c72f7e33a";
 const GH_REPO = "gqpG10/dsh-xiaoyu-novel";
 const GITEE_REPO = "gqp20031110/dsh-xiaoyu-novel";
-const VERSION = "3.39.0";
+const VERSION = "3.40.0";
 const TAG = "v" + VERSION;
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, "")), "..");
 
@@ -146,6 +146,50 @@ async function giteePublish() {
     body: JSON.stringify({ access_token: GITEE_TOKEN, tag_name: TAG, message: "v" + VERSION, refs: "master" }),
   });
   console.log("gitee tag:", tg.status, (await tg.text()).slice(0, 150));
+
+  // 3.39.0 补上 Gitee Release（以前只建 tag，不建 Release，发行版页面是空的）
+  const bodyText = [
+    "小鱼创作台 " + TAG,
+    "",
+    "安装：dsha-plugin import dsh-xiaoyu-novel-" + VERSION + ".zip，然后重启 DSH Web。",
+    "更新：面板里点「检测更新」，或手动导入新 zip。",
+  ].join("\n");
+  let relId = null;
+  try {
+    const rr = await gitee("https://gitee.com/api/v5/repos/" + GITEE_REPO + "/releases", {
+      method: "POST",
+      body: JSON.stringify({
+        access_token: GITEE_TOKEN,
+        tag_name: TAG,
+        name: "小鱼创作台 " + TAG,
+        body: bodyText,
+        target_commitish: "master",
+        prerelease: false,
+      }),
+    });
+    const rt = await rr.text();
+    console.log("gitee release:", rr.status, rt.slice(0, 180));
+    if (rr.status < 300) { try { relId = JSON.parse(rt).id } catch { /* 无 id */ } }
+  } catch (e) { console.log("gitee release failed:", e.message); }
+
+  // 附件：本地已打包的 zip（multipart/form-data）
+  const zipPath = path.join(ROOT, "dist", "dsh-xiaoyu-novel-" + VERSION + ".zip");
+  if (relId && fs.existsSync(zipPath)) {
+    try {
+      const fd = new FormData();
+      fd.append("access_token", GITEE_TOKEN);
+      fd.append("file", new Blob([fs.readFileSync(zipPath)]), path.basename(zipPath));
+      const ar = await fetch("https://gitee.com/api/v5/repos/" + GITEE_REPO + "/releases/" + relId + "/attach_files", {
+        method: "POST",
+        body: fd,
+        // 注意：multipart 不能手写 Content-Type，交给 fetch 自动带 boundary
+      });
+      console.log("gitee asset:", ar.status, (await ar.text()).slice(0, 160));
+    } catch (e) { console.log("gitee asset failed:", e.message); }
+  } else if (!relId) {
+    console.log("gitee asset: 跳过（Release 没建成或 zip 不存在）");
+  }
+
   return "gitee ok";
 }
 

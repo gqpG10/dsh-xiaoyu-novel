@@ -126,6 +126,7 @@ import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats, qual
 import { qualityTrend } from './lib/quality-trend.mjs'
 import { buildCoverPrompt } from './lib/cover-prompt.mjs'
 import { packProject, unpackProject } from './lib/project-pack.mjs'
+import { scanDialogueQuotes, gateDialogueQuotes, summarizeDialogueQuotes } from './lib/dialogue-quote.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2111,6 +2112,37 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'dialogue-quote' && req.method === 'GET') {
+          // 3.40.0 对话引号检查：单章（file）或整本汇总
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const file = url.searchParams.get('file')
+          if (file) {
+            const stem = String(file).replace(/\.md$/i, '')
+            let ch = null
+            try { ch = readChapter(novelDir, stem + '.md') } catch { ch = null }
+            if (!ch || ch.ok === false) { json(res, 404, { ok: false, error: '章节不存在' }); return }
+            const r = scanDialogueQuotes(String(ch.body || ''))
+            json(res, 200, { ok: true, file: stem, summary: summarizeDialogueQuotes(r), ...r })
+            return
+          }
+          // 整本汇总
+          const chDir = path.join(novelDir, 'chapters')
+          const agg = []
+          try {
+            for (const f of readdirSync(chDir)) {
+              if (!/\.md$/i.test(f)) continue
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { ch = null }
+              if (!ch || ch.ok === false) continue
+              const r = scanDialogueQuotes(String(ch.body || ''))
+              if (!r.ok) agg.push({ file: f, count: r.count, summary: summarizeDialogueQuotes(r), first: r.violations[0] || null })
+            }
+          } catch { /* 无 chapters 目录 */ }
+          agg.sort((a, b) => b.count - a.count)
+          json(res, 200, { ok: true, total: agg.reduce((s, x) => s + x.count, 0), chapters: agg })
+          return
+        }
+
         if (route === 'fanqie-login-begin' && req.method === 'POST') {
           // 3.38.0 一键登录：起独立 user-data-dir 的 Chrome，打开番茄作家后台。
           const out = await beginLogin(resolveDshHome())
@@ -2233,6 +2265,13 @@ export async function registerCreatorRoutes(ctx) {
             const a1 = String(x.file || ''), b1 = String(y.file || '')
             return a1 < b1 ? -1 : a1 > b1 ? 1 : 0
           })
+          // 对话引号策略：项目 project.yml 里 dialogue_quote_mode: block|warn（默认 warn）
+          let dialogueQuoteMode = 'warn'
+          try {
+            const projRaw = readFileSync(path.join(novelDir, 'project.yml'), 'utf8')
+            const mm = /^\s*dialogue_quote_mode\s*:\s*(\w+)/m.exec(projRaw)
+            if (mm && /^(block|warn)$/i.test(mm[1])) dialogueQuoteMode = mm[1].toLowerCase()
+          } catch { /* 用默认 */ }
           const results = []
           for (const item of sorted) {
             const file = String(item.file || '')
@@ -2255,6 +2294,10 @@ export async function registerCreatorRoutes(ctx) {
             // 只有 C 显示为分段，A/B 纯文本全部黏成一大段。所以：
             //   统一 \n → 按空行切段 → 转义 & < > → 每段包 <p> → 直接拼接。
             const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            // 3.40.0 强制规则：人物对话只能用双引号。项目设置 dialogueQuoteMode=block 时拒发。
+            const dq = scanDialogueQuotes(bodyText)
+            const dqGate = gateDialogueQuotes(dq, dialogueQuoteMode)
+            if (!dqGate.pass) { results.push({ file, ok: false, error: dqGate.reason, quoteViolations: dq.violations.slice(0, 5) }); continue }
             const paras = String(bodyText).replace(/\r\n/g, '\n').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
             const contentHtml = paras.map((p) => '<p>' + escHtml(p) + '</p>').join('')
             // 自检：正文首行不该是 frontmatter 字段（剥不净时直接拒发）

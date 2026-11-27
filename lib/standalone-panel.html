@@ -119,7 +119,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.39.0';
+var BUILD = '3.40.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -151,7 +151,9 @@ var BUILD = '3.39.0';
             // 3.37.0 打包迁移：上次导入结果提示
             packMsg: '',
             // 3.38.0 一键登录的进度提示
-            fqLoginMsg: '' };
+            fqLoginMsg: '',
+            // 3.40.0 对话引号扫描结果
+            dq: null, dqErr: '' };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -831,6 +833,7 @@ var BUILD = '3.39.0';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
+    out += vDialogueQuote();
     out += vConsistency();
     out += vQualityTrend();
     out += '<div class="card"><h3>全书体检' + (S.auditBusy ? '<span class="badge">计算中…</span>' : '') + '</h3>' +
@@ -884,6 +887,7 @@ var BUILD = '3.39.0';
   }
 
   function bindAudit() {
+    bindDialogueQuote();
     var aa = $('auditAll');
     if (aa) aa.addEventListener('click', function () {
       var ps = (S.check && S.check.problems) || [];
@@ -1205,6 +1209,53 @@ var BUILD = '3.39.0';
     }).join('');
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
+  }
+  /* 3.40.0 对话引号：人物对话只能用双引号（“” 或 ""），直角引号「」与单引号‘’判违规。 */
+  function vDialogueQuote() {
+    var q = S.dq || {}
+    var list = q.chapters || []
+    var head = '<div class="card"><h3>对话引号 <span class="badge">强制双引号</span>' +
+      (q.total != null ? '<span class="pill ' + (q.total ? 'bad' : 'ok') + '">' + (q.total ? q.total + ' 处违规' : '全部合规') + '</span>' : '') +
+      '</h3>';
+    if (S.dqErr) head += '<div class="err">读取失败：' + esc(S.dqErr) + '</div>';
+    head += '<div class="muted" style="margin-bottom:6px">规则：人物对话只能用双引号 “……” 或 "……"。' +
+      '直角引号「」、中文单引号‘’包住的成句台词算违规（术语、书名、撇号不误判）。' +
+      '项目 project.yml 里 <code>dialogue_quote_mode: block</code> 可切换成「违规直接拒发」。</div>';
+    if (list.length) {
+      head += '<div style="max-height:34vh;overflow-y:auto">' + list.slice(0, 40).map(function (c) {
+        return '<div class="row" style="border-bottom:1px solid #262b33;padding:5px 0">' +
+          '<span class="k" style="min-width:auto">' + esc(c.file) + '</span>' +
+          '<span class="v" style="font-size:12px"><b style="color:#ff8a8a">' + c.count + ' 处</b> · ' +
+          esc(c.first ? ('L' + c.first.line + ' ' + c.first.text.slice(0, 40)) : '') + '</span></div>';
+      }).join('') + '</div>';
+    } else if (q.total === 0) {
+      head += '<div class="ok">✅ 全书章节都符合「对话用双引号」规则</div>';
+    } else {
+      head += '<div class="muted">点击下方按钮开始扫描</div>';
+    }
+    head += '<div class="btnrow" style="margin-top:6px"><button type="button" id="dqScan" class="sm pri">扫描全书引号</button>' +
+      '<button type="button" id="dqScanCur" class="sm">只查当前章</button></div>';
+    return head + '</div>';
+  }
+  function bindDialogueQuote() {
+    var s1 = $('dqScan');
+    if (s1) s1.addEventListener('click', function () {
+      note('扫描中…');
+      get('dialogue-quote', { path: S.ws || '' }).then(function (d) {
+        S.dq = d || {}; S.dqErr = d && d.ok === false ? d.error : ''; render();
+        note('扫描完成：' + ((d && d.total) || 0) + ' 处违规');
+      }).catch(function (e) { note('扫描失败：' + ((e && e.message) || e)); });
+    });
+    var s2 = $('dqScanCur');
+    if (s2) s2.addEventListener('click', function () {
+      var cur = S.cur || '';
+      if (!cur) { note('先在章节列表点开一章'); return; }
+      get('dialogue-quote', { path: S.ws || '', file: cur }).then(function (d) {
+        S.dq = { total: (d && d.count) || 0, chapters: d && d.count ? [{ file: cur, count: d.count, first: (d.violations || [])[0] || null }] : [] };
+        render();
+        note(d && d.count ? ('当前章 ' + d.count + ' 处违规') : '当前章合规');
+      }).catch(function (e) { note('查询失败：' + ((e && e.message) || e)); });
+    });
   }
   /* 3.37.0 打包迁移：把书稿（或全部数据）打成 tar.gz 下载，换设备后导入。 */
   function vPack() {
