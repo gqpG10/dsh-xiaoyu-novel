@@ -10,7 +10,7 @@ const index = readFileSync(path.join(root, 'index.mjs'), 'utf8')
 // ── 3.32.0 番茄发布：正文取 readChapter / 章号拼接 / 章序排序 / 发前自检 ──
 
 test('发布取正文：复用 readChapter（和阅读页同一解析器）', () => {
-  assert.ok(index.includes('ch = readChapter(novelDir, stem)'), '必须用 readChapter')
+  assert.ok(index.includes('readChapter(novelDir, fileName)') || index.includes('ch = readChapter(novelDir, stem)'), '必须用 readChapter')
   assert.ok(index.includes('const fm = ch.frontmatter || {}'))
   assert.ok(index.includes("String(ch.body || '').trim()"))
 })

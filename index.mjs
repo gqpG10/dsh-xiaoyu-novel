@@ -125,6 +125,7 @@ import { chapterContext } from './lib/chapter-context.mjs'
 import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats, qualityOfBlueprint } from './lib/chapter-blueprint.mjs'
 import { qualityTrend } from './lib/quality-trend.mjs'
 import { buildCoverPrompt } from './lib/cover-prompt.mjs'
+import { packProject, unpackProject } from './lib/project-pack.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
 import { scanAttributeConflicts, scanTimelineConflicts } from './lib/consistency-core.mjs'
@@ -2109,6 +2110,39 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'pack-download' && req.method === 'GET') {
+          // 3.37.0 打包迁移：把书稿（或全部数据）打成 tar.gz 直接下载。
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const scope = url.searchParams.get('scope') === 'all' ? 'all' : 'project'
+          const includeSecrets = url.searchParams.get('secrets') === '1'
+          const packed = packProject({ novelDir, scope, dshHome: resolveDshHome(), includeSecrets })
+          if (!packed.ok) { json(res, 400, { ok: false, error: packed.error }); return }
+          res.writeHead(200, {
+            'Content-Type': 'application/gzip',
+            'Content-Disposition': 'attachment; filename="' + encodeURIComponent(packed.filename) + '"',
+            'Content-Length': packed.buffer.length,
+            'X-Pack-Title': encodeURIComponent(packed.manifest.title),
+            'X-Pack-Chapters': String(packed.manifest.chapters),
+            'X-Pack-Files': String(packed.manifest.fileCount),
+          })
+          res.end(packed.buffer)
+          return
+        }
+
+        if (route === 'pack-import' && req.method === 'POST') {
+          // 导入迁移包：解到 novel-import-<时间戳>/，永不覆盖现有内容。
+          const body = await readBody(req, res)
+          const targetRoot = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          if (!body.data) { json(res, 400, { ok: false, error: '缺少包数据' }); return }
+          let buf
+          try { buf = Buffer.from(String(body.data), 'base64') } catch { json(res, 400, { ok: false, error: 'base64 解码失败' }); return }
+          const out = unpackProject(buf, targetRoot)
+          if (!out.ok) { json(res, 400, out); return }
+          invalidateAllCaches()
+          json(res, 200, out)
+          return
+        }
+
         if (route === 'fanqie-auth' && req.method === 'GET') {
           // 3.29.0 番茄发布：只回是否已存令牌（不回显令牌本身）。
           const a = loadAuth(resolveDshHome())
@@ -2163,14 +2197,27 @@ export async function registerCreatorRoutes(ctx) {
           const results = []
           for (const item of sorted) {
             const file = String(item.file || '')
-            const stem = file.replace(/\.md$/i, '')
+            // 3.33.0：readChapter 要的是**带 .md 的完整文件名**（内部 readTarget 会校验后缀）。
+            // 上一版传的是去后缀的 stem，它必抛「章节不存在」，错误又被 catch 吞成
+            // 「正文读取失败」——就是主人看到的那个。这里改成原样传，并保留真实原因。
+            const nameOnly = file.replace(/^.*[\\/]/, '')
+            const fileName = /\.md$/i.test(nameOnly) ? nameOnly : nameOnly + '.md'
+            const stem = fileName.replace(/\.md$/i, '')
             if (!/^[A-Za-z0-9_-]+$/.test(stem)) { results.push({ file, ok: false, error: '章名非法' }); continue }
             let ch = null
-            try { ch = readChapter(novelDir, stem) } catch { ch = null }
-            if (!ch || ch.ok === false) { results.push({ file, ok: false, error: '正文读取失败' }); continue }
+            let readErr = ''
+            try { ch = readChapter(novelDir, fileName) } catch (e) { readErr = String((e && e.message) || e) }
+            if (!ch || ch.ok === false) { results.push({ file, ok: false, error: '正文读取失败' + (readErr ? '：' + readErr : '') }); continue }
             const fm = ch.frontmatter || {}
             const bodyText = String(ch.body || '').trim()
             if (!bodyText) { results.push({ file, ok: false, error: '正文为空' }); continue }
+            // 3.36.0 段落：番茄的 content 走富文本渲染，**必须传 HTML <p> 段落**。
+            // 实测（2026-11-27，真实账号发了 A 单换行 / B 双换行 / C <p> 三个对照章）：
+            // 只有 C 显示为分段，A/B 纯文本全部黏成一大段。所以：
+            //   统一 \n → 按空行切段 → 转义 & < > → 每段包 <p> → 直接拼接。
+            const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            const paras = String(bodyText).replace(/\r\n/g, '\n').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+            const contentHtml = paras.map((p) => '<p>' + escHtml(p) + '</p>').join('')
             // 自检：正文首行不该是 frontmatter 字段（剥不净时直接拒发）
             const firstLine = bodyText.split(/\r?\n/, 1)[0] || ''
             if (/^(volume|num|title|status|summary|cognitive_frame|emotional_anchor|world_texture|suspense|interpersonal_tension)\s*:/i.test(firstLine)) {
@@ -2184,10 +2231,12 @@ export async function registerCreatorRoutes(ctx) {
               no = m ? Number(m[1]) : (Number(item.no) || 0)
             }
             const pureTitle = String(fm.title || item.title || '').trim() || stem
-            const title = no > 0 ? ('第' + no + '章 ' + pureTitle) : pureTitle
-            if (body.dry === true) { results.push({ file, ok: true, dry: true, title, chars: bodyText.length, excerpt: bodyText.slice(0, 60) }); continue }
+            // 幂等：标题里已经有「第N章」就不再重复拼（防止「第1章 第1章 xxx」）
+            const hasNo = /^第\s*[0-9一二三四五六七八九十百千]+\s*章/.test(pureTitle)
+            const title = hasNo ? pureTitle : (no > 0 ? ('第' + no + '章 ' + pureTitle) : pureTitle)
+            if (body.dry === true) { results.push({ file, ok: true, dry: true, title, chars: bodyText.length, paras: paras.length, excerptHtml: contentHtml.split('\n').slice(0, 3).join(' ⏎ ') }); continue }
             try {
-              const pub = await fanqiePublish(a, { bookId, title, content: bodyText })
+              const pub = await fanqiePublish(a, { bookId, title, content: contentHtml })
               markPublished(novelDir, stem, { title, bookId, itemId: pub.itemId, no })
               results.push({ file, ok: true, title, itemId: pub.itemId, no })
             } catch (e) {

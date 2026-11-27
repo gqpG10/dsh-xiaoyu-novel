@@ -1,0 +1,15 @@
+files: 203
+file:///C:/Users/gqp20/.dsh/plugins/dsh-xiaoyu-novel/scripts/publish-dual.mjs:57
+    if (r.status !== 201) throw new Error("blob " + f.rel + ": " + r.status + " " + (await r.text()).slice(0, 200));
+                                ^
+
+Error: blob .gitignore: 401 {
+  "message": "Bad credentials",
+  "documentation_url": "https://docs.github.com/rest",
+  "status": "401"
+}
+    at ghPublish (file:///C:/Users/gqp20/.dsh/plugins/dsh-xiaoyu-novel/scripts/publish-dual.mjs:57:33)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///C:/Users/gqp20/.dsh/plugins/dsh-xiaoyu-novel/scripts/publish-dual.mjs:153:35
+
+Node.js v24.22.1

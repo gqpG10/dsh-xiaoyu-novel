@@ -1,0 +1,19 @@
+files: 200
+gitee progress: 25 / 200
+gitee progress: 50 / 200
+gitee progress: 75 / 200
+WARN templates/novel/chapters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/characters/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 100 / 200
+WARN templates/novel/exports/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/outlines/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/research/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/science/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 125 / 200
+WARN templates/novel/world/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 150 / 200
+WARN test/github-update.test.mjs 400 {"message":"文件名已存在"}
+gitee progress: 175 / 200
+gitee files created: 4 updated: 188
+gitee tag: 400 {"message":"标签名已存在"}
+gitee ok

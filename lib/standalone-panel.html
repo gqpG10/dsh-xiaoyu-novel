@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.32.0';
+var BUILD = '3.37.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -144,7 +144,9 @@ var BUILD = '3.32.0';
             // 3.29.0 番茄发布：令牌配置态 / 书单 / 发布记录 / 上次结果
             fq: null, fqBooks: null, fqBook: '', fqLedger: null, fqResults: null, fqCsrfDraft: '',
             // 3.30.0 封面提示词：生成结果直接驻留面板供复制
-            coverRes: null };
+            coverRes: null,
+            // 3.37.0 打包迁移：上次导入结果提示
+            packMsg: '' };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -1192,6 +1194,109 @@ var BUILD = '3.32.0';
     }).join('');
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
+  }
+  /* 3.37.0 打包迁移：把书稿（或全部数据）打成 tar.gz 下载，换设备后导入。 */
+  function vPack() {
+    return '<div class="card"><h3>打包迁移 <span class="badge">换设备搬书</span></h3>' +
+      '<div class="btnrow">' +
+        '<button type="button" id="packOne" class="sm pri">打包本项目</button>' +
+        '<button type="button" id="packAll" class="sm">打包全部数据</button>' +
+        '<button type="button" id="packImport" class="sm">导入迁移包</button>' +
+      '</div>' +
+      '<div class="muted" style="margin-top:6px">本项目 = 整份 novel/（章节/角色/伏笔/设定/蓝图/记忆/报告）。' +
+      '全部数据 = 书稿 + 写作进度 + 发布记录（可选含番茄令牌）。' +
+      '导入永不覆盖：一律解到 novel-import-时间戳/ 目录，再由你决定接入。</div>' +
+      '<input type="file" id="packFile" accept=".gz,.tar.gz,application/gzip" style="display:none">' +
+      (S.packMsg ? '<div class="muted" style="margin-top:6px">' + esc(S.packMsg) + '</div>' : '') +
+      '</div>';
+  }
+  function bindPack() {
+    var one = $('packOne');
+    if (one) one.addEventListener('click', function () {
+      if (!S.ws) { note('先接入一个项目'); return; }
+      var u = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=project';
+      var a = document.createElement('a'); a.href = u; a.download = ''; document.body.appendChild(a); a.click(); a.remove();
+      note('正在打包本项目…浏览器会开始下载');
+    });
+    var all = $('packAll');
+    if (all) all.addEventListener('click', function () {
+      if (!S.ws) { note('先接入一个项目'); return; }
+      var withSecrets = window.confirm('是否把番茄令牌（Cookie）也打进包里？\n\n确定 = 包含（换设备后不用重新登录，但包要保管好）\n取消 = 不包含（更安全）');
+      var u = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=all' + (withSecrets ? '&secrets=1' : '');
+      var a = document.createElement('a'); a.href = u; a.download = ''; document.body.appendChild(a); a.click(); a.remove();
+      note('正在打包全部数据…');
+    });
+    var imp = $('packImport');
+    var file = $('packFile');
+    if (imp && file) {
+      imp.addEventListener('click', function () { file.click(); });
+      file.addEventListener('change', function () {
+        var f = file.files && file.files[0];
+        if (!f) return;
+        if (!S.ws) { note('先接入一个项目（决定解包到哪个工作区）'); return; }
+        note('读取包中…');
+        var reader = new FileReader();
+        reader.onload = function () {
+          var b64 = String(reader.result || '').split(',')[1] || '';
+          note('解包中…');
+          postJson('pack-import', { path: S.ws, data: b64 }).then(function (r) {
+            S.packMsg = '已还原 ' + (r.files || 0) + ' 个文件到：' + (r.dir || '') +
+              (r.manifest ? '（来源：' + (r.manifest.title || '?') + '，' + (r.manifest.chapters || 0) + ' 章）' : '');
+            note('导入完成');
+            render();
+          }).catch(function (e) { note('导入失败：' + ((e && e.message) || e)); });
+        };
+        reader.onerror = function () { note('读取文件失败'); };
+        reader.readAsDataURL(f);
+        file.value = '';
+      });
+    }
+  }
+  function bindPack() {
+    var one = $('packOne');
+    if (one) one.addEventListener('click', function () {
+      if (!S.ws) { note('先接入一个项目'); return; }
+      var a = document.createElement('a');
+      a.href = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=project';
+      a.download = '';
+      document.body.appendChild(a); a.click(); a.remove();
+      note('正在打包本项目…浏览器会开始下载');
+    });
+    var all = $('packAll');
+    if (all) all.addEventListener('click', function () {
+      if (!S.ws) { note('先接入一个项目'); return; }
+      var withSecrets = window.confirm('是否把番茄令牌（Cookie）也打进包里？\n\n确定 = 包含（换设备不用重登，但包要保管好）\n取消 = 不包含（更安全）');
+      var a = document.createElement('a');
+      a.href = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=all' + (withSecrets ? '&secrets=1' : '');
+      a.download = '';
+      document.body.appendChild(a); a.click(); a.remove();
+      note('正在打包全部数据…');
+    });
+    var imp = $('packImport');
+    var file = $('packFile');
+    if (imp && file) {
+      imp.addEventListener('click', function () { file.click(); });
+      file.addEventListener('change', function () {
+        var f = file.files && file.files[0];
+        if (!f) return;
+        if (!S.ws) { note('先接入一个项目（决定解包到哪个工作区）'); return; }
+        note('读取包中…');
+        var reader = new FileReader();
+        reader.onload = function () {
+          var b64 = String(reader.result || '').split(',')[1] || '';
+          note('解包中…');
+          postJson('pack-import', { path: S.ws, data: b64 }).then(function (r) {
+            S.packMsg = '已还原 ' + (r.files || 0) + ' 个文件到：' + (r.dir || '') +
+              (r.manifest ? '（来源：' + (r.manifest.title || '?') + '，' + (r.manifest.chapters || 0) + ' 章）' : '');
+            note('导入完成');
+            render();
+          }).catch(function (e) { note('导入失败：' + ((e && e.message) || e)); });
+        };
+        reader.onerror = function () { note('读取文件失败'); };
+        reader.readAsDataURL(f);
+        file.value = '';
+      });
+    }
   }
   /* 3.27.0 封面提示词（story-cover 范式）：书名+作者+题材 → 两套提示词。 */
   function vCoverPrompt() {
@@ -2382,9 +2487,10 @@ var BUILD = '3.32.0';
       '<div class="row"><span class="k">模式</span><span class="v"><select id="pMode" style="width:100%">' + modeOpts + '</select></span></div>' +
       '<div class="row"><span class="k">简介</span><span class="v"><textarea id="pDesc" class="small" style="width:100%">' + esc(v.description || '') + '</textarea></span></div>' +
       '<div class="btnrow"><button type="button" id="projSave" class="sm pri">保存</button>' +
-      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vCoverPrompt() + vRadar() + vBeats();
+      '<span class="muted">保存只改这些键，注释与其它键原样保留</span></div></div>' + vPack() + vCoverPrompt() + vRadar() + vBeats();
   }
   function bindProj() {
+    bindPack();
     var cb = $('coverBtn');
     if (cb) cb.addEventListener('click', function () {
       note('生成中…');
