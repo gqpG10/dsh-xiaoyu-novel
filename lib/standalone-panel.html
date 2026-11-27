@@ -119,7 +119,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.48.1';
+var BUILD = '3.48.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -461,6 +461,8 @@ var BUILD = '3.48.1';
       '<div class="muted">内容自动保存（按书隔离）；指令把十步打包成开书九件套的生成任务。</div></div>';
   }
   function vOverview(d) {
+    // 3.48.2 书库卡放在概览最前面：主人找不到切换书的地方，这里一进来就能看到
+    var shelfHead = vBookShelf();
     var p = d.project || {}, ch = d.chapters || [], words = 0, by = {};
     ch.forEach(function (c) { words += Number(c.words || 0); var s = c.status || '未标'; by[s] = (by[s] || 0) + 1; });
     var dist = Object.keys(by).map(function (k) { return STATUS_LABEL[k] ? STATUS_LABEL[k] + ' ' + by[k] : k + ' ' + by[k]; }).join(' · ');
@@ -487,14 +489,16 @@ var BUILD = '3.48.1';
         }).join('') + '</div>';
     }
     var snowCard = vSnow();
-    var shelf = '<div class="card"><h3>书架</h3>' + ((S.wsList || []).filter(function (w) { return w.hasNovel; }).map(function (w) {
+    var shelf = '<div class="card"><h3>工作区 <span class="badge">DSH 目录</span></h3>' + ((S.wsList || []).filter(function (w) { return w.hasNovel; }).map(function (w) {
       var cur = w.path === S.ws;
       var meta = (cur && S.data) ? '<span class="muted" style="font-size:12px">' + ((S.data.chapters || []).length) + ' 章 · ' + ((S.progress && S.progress.today) || 0) + ' 字' +
         (S.gates && gateAvg() !== '' ? ' · 人味 ' + gateAvg() : '') + '</span>' : '';
       return '<button type="button" class="wsbtn' + (cur ? ' cur' : '') + '" data-ws="' + esc(w.path) + '">' +
         esc(w.name || w.path) + (cur ? '<span class="pill good">当前</span>' : '') + '<br>' + meta + '</button>';
     }).join('') || '<div class="muted">（无）</div>') + weekBars() + '</div>' + heatGrid();
-    return setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
+    // 3.48.2 真·书库放最前面：主人之前一直找不到"换哪本书"——旧「书架」其实是工作区列表，
+    // 两本书同属一个工作区时它只显示一项，看起来就是"选不了"。
+    return vBookShelf() + setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
       ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
     ]) + '</div>' +
@@ -4210,6 +4214,24 @@ var BUILD = '3.48.1';
     $('build').textContent = 'b' + BUILD;
     get('workspaces').then(function (d) {
       var list = (d && d.workspaces) || [];
+    // 3.48.2 顶栏显示当前书名（切换书后立刻能看见在用哪本）
+    try {
+      var bn = document.getElementById('bookName');
+      if (!bn) {
+        var barEl = document.querySelector('.bar');
+        if (barEl) {
+          bn = document.createElement('span');
+          bn.id = 'bookName';
+          bn.style.cssText = 'margin-left:10px;font-size:12px;color:#8b9bb0;max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+          barEl.appendChild(bn);
+        }
+      }
+      if (bn) {
+        var curB = (S.shelf && S.shelf.books || []).filter(function (b) { return b.novelDir === S.novelDir; })[0];
+        var fb = (S.data && S.data.project && S.data.project.title) || '';
+        bn.textContent = curB ? ('📖 ' + (curB.title || '')) : (S.novelDir ? ('📖 ' + S.novelDir.split(/[\\/]/).pop()) : (fb ? '📖 ' + fb : ''));
+      }
+    } catch (e) {}
       S.wsList = list;
       var sel = $('ws');
       sel.innerHTML = list.map(function (w, i) {
