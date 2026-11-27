@@ -126,6 +126,7 @@ import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats, qual
 import { qualityTrend } from './lib/quality-trend.mjs'
 import { buildCoverPrompt } from './lib/cover-prompt.mjs'
 import { packProject, unpackProject } from './lib/project-pack.mjs'
+import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
 import { scanAttributeConflicts, scanTimelineConflicts } from './lib/consistency-core.mjs'
@@ -2107,6 +2108,44 @@ export async function registerCreatorRoutes(ctx) {
             return { problems }
           })
           json(res, 200, cons)
+          return
+        }
+
+        if (route === 'fanqie-login-begin' && req.method === 'POST') {
+          // 3.38.0 一键登录：起独立 user-data-dir 的 Chrome，打开番茄作家后台。
+          const out = await beginLogin(resolveDshHome())
+          json(res, out.ok ? 200 : 400, out)
+          return
+        }
+
+        if (route === 'fanqie-login-finish' && req.method === 'POST') {
+          // 用户说「登录好了」→ 通过 CDP 读 Cookie → 验证 → 落盘。
+          const out = await finishLogin(resolveDshHome(), checkLogin, (auth) => saveAuth(resolveDshHome(), auth))
+          json(res, out.ok ? 200 : 400, out)
+          return
+        }
+
+        if (route === 'fanqie-login-paste' && req.method === 'POST') {
+          // 兜底：手动粘贴一整行 Cookie。
+          const body = await readBody(req, res)
+          const parsed = parsePastedCookie(body.cookie)
+          if (!parsed.ok) { json(res, 400, parsed); return }
+          const auth = { cookie: parsed.cookie, csrf: parsed.csrf, savedAt: new Date().toISOString() }
+          try {
+            const login = await checkLogin(auth)
+            saveAuth(resolveDshHome(), auth)
+            json(res, 200, { ok: true, books: login.books || [], csrf: !!parsed.csrf })
+          } catch (e) {
+            json(res, 400, { ok: false, error: '验证失败：' + String((e && e.message) || e) })
+          }
+          return
+        }
+
+        if (route === 'fanqie-login-status' && req.method === 'GET') {
+          // 查询进行中会话 + 本机浏览器探测结果（面板显示用）
+          const sess = readLoginSession(resolveDshHome())
+          const chrome = findChrome()
+          json(res, 200, { ok: true, session: sess, chrome: chrome || null, canAuto: !!chrome })
           return
         }
 

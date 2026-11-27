@@ -116,7 +116,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.37.0';
+var BUILD = '3.38.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -146,7 +146,9 @@ var BUILD = '3.37.0';
             // 3.30.0 封面提示词：生成结果直接驻留面板供复制
             coverRes: null,
             // 3.37.0 打包迁移：上次导入结果提示
-            packMsg: '' };
+            packMsg: '',
+            // 3.38.0 一键登录的进度提示
+            fqLoginMsg: '' };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -502,6 +504,12 @@ var BUILD = '3.37.0';
     var selected = S.fqBook || (books[0] && books[0].bookId) || '';
     var out = '<div class="card"><h3>番茄发布 <span class="badge">' + (f.configured ? '令牌已存' : '未配置') + '</span>' +
       (doneN ? '<span class="pill ok">已发 ' + doneN + ' 章</span>' : '') + '</h3>';
+    // 3.38.0 一键登录：点一下自动起浏览器，登录完点第二下就回填（不用碰 F12）。
+    out += '<div class="btnrow" style="margin-bottom:6px">' +
+      '<button type="button" id="fqLoginBegin" class="sm pri">① 一键登录（自动开浏览器）</button>' +
+      '<button type="button" id="fqLoginFinish" class="sm">② 我已登录好，读回登录态</button>' +
+      '</div>' +
+      (S.fqLoginMsg ? '<div class="muted" style="margin-bottom:6px">' + esc(S.fqLoginMsg) + '</div>' : '');
     if (!f.configured) {
       out += '<div class="muted" style="margin-bottom:6px">取法：浏览器登录 fanqienovel.com 作家后台 → F12 → Network → 点任意 /api/author/... 请求 → 复制请求头里的 <b>Cookie</b> 整行，以及 <b>X-Secsdk-Csrf-Token</b> 的值。Cookie 有效期约 1~2 个月。</div>';
     }
@@ -3424,7 +3432,35 @@ var BUILD = '3.37.0';
   function bindChapters() {
     var fs1 = $('fqSave');
     if (fs1) fs1.addEventListener('click', function () {
-      var ck = $('fqCookie'), cs = $('fqCsrf');
+      var lb = $('fqLoginBegin');
+    if (lb) lb.addEventListener('click', function () {
+      S.fqLoginMsg = '正在打开浏览器…';
+      render();
+      postJson('fanqie-login-begin', {}).then(function (r) {
+        S.fqLoginMsg = r.ok
+          ? '浏览器已打开（端口 ' + r.port + '）。请在窗口里登录番茄，登录好后点上面的「② 我已登录好」'
+          : '打开失败：' + (r.error || '未知原因') + '。可展开下面「高级」手动粘贴 Cookie。';
+        render();
+      }).catch(function (e) { S.fqLoginMsg = '请求失败：' + ((e && e.message) || e); render(); });
+    });
+    var lf = $('fqLoginFinish');
+    if (lf) lf.addEventListener('click', function () {
+      S.fqLoginMsg = '正在读取登录态…';
+      render();
+      postJson('fanqie-login-finish', {}).then(function (r) {
+        if (r.ok) {
+          S.fqLoginMsg = '登录成功！读到 ' + (r.cookieCount || 0) + ' 个 Cookie，书单 ' + ((r.books || []).length) + ' 本';
+          S.fq = { configured: true };
+          S.fqBooks = r.books || [];
+          S.fqBook = (r.books && r.books[0] && r.books[0].bookId) || '';
+          render();
+        } else {
+          S.fqLoginMsg = '读取失败：' + (r.error || '未知原因');
+          render();
+        }
+      }).catch(function (e) { S.fqLoginMsg = '请求失败：' + ((e && e.message) || e); render(); });
+    });
+    var ck = $('fqCookie'), cs = $('fqCsrf');
       if (!ck || !String(ck.value || '').trim()) { note('Cookie 不能为空'); return; }
       postJson('fanqie-auth', { cookie: ck.value, csrf: cs ? cs.value : '' })
         .then(function () { note('令牌已存（本机，不进仓库）'); S.fq = { configured: true }; render(); })
