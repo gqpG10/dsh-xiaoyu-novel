@@ -138,6 +138,7 @@ import { auditVolumes, summarizeVolumes } from './lib/volume-lines.mjs'
 import { memoryHealth, syncMemories, compressRange, summarizeMemory } from './lib/memory-sync.mjs'
 import { preflightChapters, summarizePreflight } from './lib/preflight.mjs'
 import { detectRepeatedImagery, rhythmCurve, detectCharacterAbsence, summarizeCross } from './lib/cross-chapter.mjs'
+import { classifyCharacters, filterForGraph, summarizeCast } from './lib/cast-filter.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2120,6 +2121,31 @@ export async function registerCreatorRoutes(ctx) {
             return { problems }
           })
           json(res, 200, cons)
+          return
+        }
+
+        if (route === 'cast-tiers' && req.method === 'GET') {
+          // 3.47.0 角色分级：主要/势力/次要/路人
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const chDir = path.join(novelDir, 'chapters')
+          const chapters = []
+          try {
+            for (const f of readdirSync(chDir).filter((x) => /\.md$/i.test(x)).sort()) {
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { continue }
+              if (ch && ch.ok !== false) chapters.push({ file: f.replace(/\.md$/i, ''), text: String(ch.body || '') })
+            }
+          } catch { /* 无目录 */ }
+          const mainMin = Number(url.searchParams.get('mainMin')) || 10
+          const minorMin = Number(url.searchParams.get('minorMin')) || 3
+          const out = classifyCharacters(novelDir, chapters, { mainMin, minorMin })
+          const showMinor = url.searchParams.get('showMinor') === '1'
+          const all = [...(out.main || []), ...(out.faction || []), ...(out.minor || []), ...(out.extra || [])]
+          json(res, 200, {
+            ...out,
+            summary: summarizeCast(out),
+            graph: filterForGraph(all, { showMinor }).map((r) => ({ name: r.name, tier: r.tier, chaptersHit: r.chaptersHit })),
+          })
           return
         }
 

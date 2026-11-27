@@ -119,7 +119,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.46.0';
+var BUILD = '3.47.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -167,7 +167,9 @@ var BUILD = '3.46.0';
             // 3.46.0 预检结果 / 分组折叠状态（默认展开结构组，质量组也展开）
             preflight: null, groupQuality: true, groupStruct: true,
             // 3.46.0 跨章检测
-            cross: null, crossErr: '' };
+            cross: null, crossErr: '',
+            // 3.47.0 角色分级
+            cast: null, castErr: '', castShowMinor: false, castShowExtra: false };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -851,6 +853,7 @@ var BUILD = '3.46.0';
     // 顶部一键全面检查，出总报告（省得一张一张点按钮）。
     out += vPreflight();
     out += vCrossChapter();
+    out += vCastTiers();
     out += '<div class="btnrow" style="margin-bottom:8px">' +
       '<button type="button" id="runAllChecks" class="sm pri">一键全面检查</button>' +
       '<button type="button" id="groupQuality" class="sm">' + (S.groupQuality ? '▼' : '▶') + ' 质量（文风/AI味/引号）</button>' +
@@ -1245,6 +1248,37 @@ var BUILD = '3.46.0';
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
   }
+  /* 3.47.0 角色分级：把路人从关系图剔除，只留主要人物（+可选次要）。 */
+  function vCastTiers() {
+    var c = S.cast || {}
+    var main = c.main || []
+    var fac = c.faction || []
+    var minor = c.minor || []
+    var extra = c.extra || []
+    var head = '<div class="card"><h3>角色分级 <span class="badge">关系图过滤</span>' +
+      (c.total != null ? '<span class="pill ok">主要 ' + main.length + ' · 路人 ' + extra.length + '</span>' : '') + '</h3>'
+    if (S.castErr) head += '<div class="err">读取失败：' + esc(S.castErr) + '</div>'
+    head += '<div class="muted" style="margin-bottom:6px">关系图只画主要人物（默认还包含势力）。' +
+      '判定：名字形态（描述式/机构/位置短语 → 路人）+ 出场章数（≥10 主要 / 3~9 次要 / ≤2 路人）。' +
+      '要强制覆盖，在角色卡 frontmatter 写 <code>tier: main|minor|extra|faction</code>。</div>'
+    function list(title, arr, col) {
+      if (!arr.length) return ''
+      return '<div style="font-size:12px;margin-top:6px"><b style="color:' + col + '">' + title + '（' + arr.length + '）</b></div>' +
+        '<div style="max-height:16vh;overflow-y:auto">' + arr.map(function (x) {
+          return '<div style="border-bottom:1px solid #262b33;padding:3px 0;font-size:12px">' +
+            esc(x.name) + ' <span class="muted">— ' + esc(x.reason) + '</span></div>'
+        }).join('') + '</div>'
+    }
+    head += list('主要人物', main, '#49d17d')
+    head += list('势力', fac, '#6aa8ff')
+    if (S.castShowMinor) head += list('次要人物', minor, '#e8c46a')
+    if (S.castShowExtra) head += list('路人', extra, '#8b9bb0')
+    head += '<div class="btnrow" style="margin-top:6px">' +
+      '<button type="button" id="castRun" class="sm pri">分级角色</button>' +
+      '<button type="button" id="castMinor" class="sm">' + (S.castShowMinor ? '隐藏' : '显示') + '次要</button>' +
+      '<button type="button" id="castExtra" class="sm">' + (S.castShowExtra ? '隐藏' : '显示') + '路人</button></div>'
+    return head + '</div>'
+  }
   /* 3.46.0 跨章检测：单章检测抓不到的那类问题（重复意象/节奏偏平/角色缺席）。 */
   function vCrossChapter() {
     var c = S.cross || {}
@@ -1487,6 +1521,18 @@ var BUILD = '3.46.0';
     return head + '</div>';
   }
   function bindForeshadowAndStyle() {
+    var cu = $('castRun')
+    if (cu) cu.addEventListener('click', function () {
+      note('分级中…（要扫全书出场）')
+      get('cast-tiers', { path: S.ws || '' }).then(function (d) {
+        S.cast = d || {}; S.castErr = d && d.ok === false ? d.error : ''; render()
+        note((d && d.summary) || '完成')
+      }).catch(function (e) { note('分级失败：' + ((e && e.message) || e)) })
+    })
+    var cm = $('castMinor')
+    if (cm) cm.addEventListener('click', function () { S.castShowMinor = !S.castShowMinor; render() })
+    var ce = $('castExtra')
+    if (ce) ce.addEventListener('click', function () { S.castShowExtra = !S.castShowExtra; render() })
     var cr = $('crossRun')
     if (cr) cr.addEventListener('click', function () {
       note('跨章检测中…（120 章约 2 秒）')
