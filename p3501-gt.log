@@ -1,0 +1,31 @@
+files: 269
+gitee progress: 25 / 269
+gitee progress: 50 / 269
+gitee progress: 75 / 269
+gitee progress: 100 / 269
+gitee progress: 125 / 269
+WARN scripts/rel-3280.mjs 400 {"message":"文件名已存在"}
+WARN scripts/stamp-build.mjs 400 {"message":"文件名已存在"}
+WARN skills/xiaoyu-beat-pacing/SKILL.md 400 {"message":"文件名已存在"}
+WARN skills/xiaoyu-book-setup/SKILL.md 400 {"message":"文件名已存在"}
+gitee progress: 150 / 269
+WARN templates/novel/chapters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/characters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/exports/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/outlines/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/research/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/science/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/style-presets/romance.md 400 {"message":"文件名已存在"}
+gitee progress: 175 / 269
+WARN templates/novel/world/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 200 / 269
+WARN test/cross-platform-028.test.mjs 400 {"message":"文件名已存在"}
+WARN test/fanqie-publish-fix.test.mjs 400 {"message":"文件名已存在"}
+gitee progress: 225 / 269
+gitee progress: 250 / 269
+WARN test/version.test.mjs 400 {"message":"文件名已存在"}
+gitee files created: 2 updated: 252
+gitee tag: 201 {"name":"v3.50.1","message":"","commit":{"sha":"8bc058e297a9ef943c9219403e19262e4518e06a","date":"2026-11-27T16:25:27+00:00"},"tagger":null}
+gitee release: 201 {"id":1377422,"tag_name":"v3.50.1","target_commitish":"8bc058e297a9ef943c9219403e19262e4518e06a","prerelease":false,"name":"小鱼创作台 v3.50.1","body":"小鱼创作台 v3.50.1\n\n安装：dsha-plugin i
+gitee asset: 201 {"id":3860559,"name":"dsh-xiaoyu-novel-3.50.1.zip","size":1028803,"uploader":{"id":17920814,"login":"gqp20031110","name":"gqpG10","avatar_url":"https://foruda.g
+gitee ok

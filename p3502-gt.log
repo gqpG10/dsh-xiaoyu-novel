@@ -1,0 +1,27 @@
+files: 270
+WARN lib/base.css 400 {"message":"文件名已存在"}
+WARN lib/blacklist.mjs 400 {"message":"文件名已存在"}
+WARN lib/cover-prompt.mjs 400 {"message":"文件名已存在"}
+gitee progress: 25 / 270
+WARN lib/ledger-clean.mjs 400 {"message":"文件名已存在"}
+WARN lib/living-bible.mjs 400 {"message":"文件名已存在"}
+gitee progress: 50 / 270
+WARN lib/style-config.mjs 400 {"message":"文件名已存在"}
+gitee progress: 75 / 270
+WARN p3472-gt.log 400 {"message":"文件名已存在"}
+WARN p3480-gh.log 400 {"message":"文件名已存在"}
+WARN p3481-gt.log 400 {"message":"文件名已存在"}
+gitee progress: 100 / 270
+WARN p3502-gt.log 400 {"message":"文件新建失败"}
+gitee progress: 125 / 270
+WARN templates/novel/chapters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/characters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/exports/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/outlines/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 150 / 270
+WARN templates/novel/research/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/science/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/world/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 175 / 270
+gitee progress: 200 / 270
+gitee progress: 225 / 270

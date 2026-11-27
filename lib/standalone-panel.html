@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.50.0';
+var BUILD = '3.50.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -668,7 +668,8 @@ var BUILD = '3.50.0';
         return x.toFixed(1) + ',' + y.toFixed(1);
       }).join(' ');
     }
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' +
+    // 3.50.2 同上：不拉伸，按原始尺寸画（这些图是比例图，拉伸会让格子/柱子失真）
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" style="display:block;max-width:100%">' +
       '<polyline points="' + pts('human') + '" fill="none" stroke="#4b8bf5" stroke-width="2.5"/>' +
       '<polyline points="' + pts('detector') + '" fill="none" stroke="#3fbf7f" stroke-width="1.6" stroke-dasharray="5 4"/>' +
       '</svg><div class="muted">蓝=人味 · 绿=检测器 · 共 ' + n + ' 章（左→右按章节序）</div>';
@@ -1202,7 +1203,10 @@ var BUILD = '3.50.0';
     if (!nCh || !names.length) return '';
     var CELL = 12, GAP = 2, LABEL = 88, HEAD = 26;
     var W = LABEL + nCh * (CELL + GAP), H = HEAD + names.length * (CELL + GAP);
-    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block">';
+    // 3.50.2 修「格子变大」：以前写 width:100%，SVG 会被拉伸到容器满宽，
+    // viewBox 里的 12px 格子按比例放大成 20+px。改成固定原始尺寸（W×H），
+    // 章节多时由外层 overflow-x:auto 横向滚动 —— 格子永远 12px。
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" style="display:block">';
     for (var i = 0; i < nCh; i++) {
       if (i % 5 === 0) svg += '<text x="' + (LABEL + i * (CELL + GAP) + CELL / 2) + '" y="' + (HEAD - 8) + '" fill="#8d939c" font-size="8" text-anchor="middle">' + (i + 1) + '</text>';
     }
@@ -1215,8 +1219,10 @@ var BUILD = '3.50.0';
       }
     });
     svg += '</svg>';
+    // 3.50.1 回滚：上一版套了 max-height:38vh 的包裹层，还少写了一个 </div>，
+    // 浏览器把后面的「出场热力」卡片吞进了未闭合容器——两卡才会"堆在一起"。
+    // 这里恢复成原始结构（卡片 → 横向滚动 → svg → 说明），闭合数量对得上。
     return '<div class="card"><h3>出席矩阵 <span class="badge">行=角色 · 列=章（每5章标号）</span></h3>' +
-      '<div style="max-height:38vh;overflow:auto;border:1px solid #2a2f37;border-radius:8px;padding:4px">' +
       '<div style="overflow-x:auto">' + svg + '</div>' +
       '<div class="muted" style="margin-top:4px">蓝格=该章出场。横看一行的空档=该角色戏份断档；竖看一列=该章群像规模。</div></div>';
   }
@@ -1993,7 +1999,7 @@ var BUILD = '3.50.0';
     var KEYS = [['human','人味'],['beat','爽点'],['hook','钩子'],['rhythm','节奏'],['consist','一致性'],['pull','追读力']];
     var COLORS = ['#4b8bf5','#e8a23d','#4bc05a','#b45ccc','#5ac8d8','#e05a5a'];
     var W = 600, H = 30, rows = KEYS.map(function (k, i) { return k[0]; });
-    var svg = '<svg viewBox="0 0 ' + W + ' ' + (H * KEYS.length) + '" style="width:100%;height:auto;display:block">';
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + (H * KEYS.length) + '" width="' + W + '" height="' + (H * KEYS.length) + '" style="display:block">';
     KEYS.forEach(function (k, ki) {
       var y = ki * H + H / 2;
       var pts = chs.map(function (c, i) {
@@ -2071,10 +2077,12 @@ var BUILD = '3.50.0';
       }).sort(function (a, b) { return b.cnt - a.cnt; });
       var max2 = Math.max(1, list2[0] ? list2[0].cnt : 1);
       return '<div class="card"><h3>出场热力 <span class="badge">条=出场章数 · 末次出场</span></h3>' + list2.map(function (c) {
-        var w = Math.round(c.cnt / max2 * 70);
+        // 3.50.1 宽度改固定像素：以前用 flex:0 0 XX%，百分比的分母是容器宽度，
+        // 换了布局（main#view 变成独立滚动容器）后条子会整体变长变粗。
+        var w = Math.round(c.cnt / max2 * 120);
         var cold = c.last >= 0 && nCh - 1 - c.last > 15;
         return '<div class="heatrow"><span style="flex:0 0 7em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">' + esc(c.name) + '</span>' +
-          '<div class="heatbar" style="flex:0 0 ' + Math.max(2, w) + '%;background:' + (cold ? '#8a5a5a' : '#4b8bf5') + '"></div>' +
+          '<div class="heatbar" style="flex:0 0 ' + Math.max(2, w) + 'px;background:' + (cold ? '#8a5a5a' : '#4b8bf5') + '"></div>' +
           '<span class="muted" style="font-size:11.5px">' + c.cnt + ' 章' + (c.last >= 0 ? ' · 末次 第' + (c.last + 1) + '章' : ' · 未出场') + (cold ? ' ⚠断档' + (nCh - 1 - c.last) + '章' : '') + '</span></div>';
       }).join('') + '</div>';
     }
@@ -2088,7 +2096,7 @@ var BUILD = '3.50.0';
       var lastC = chapNum(c.lastChapter);
       var cold = lastC != null && total - lastC > 15;
       return '<div class="heatrow"><span style="flex:0 0 7em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">' + esc(c.name || c.file) + '</span>' +
-        '<div class="heatbar" style="flex:0 0 ' + Math.max(2, w) + '%;background:' + (cold ? '#8a5a5a' : '#4b8bf5') + '"></div>' +
+        '<div class="heatbar" style="flex:0 0 ' + Math.max(2, w) + 'px;background:' + (cold ? '#8a5a5a' : '#4b8bf5') + '"></div>' +
         '<span class="muted" style="font-size:11.5px">' + (c.mentions || 0) + ' 次' + (c.lastChapter ? ' · 末次 ' + esc(c.lastChapter) : '') + (cold ? ' ⚠消失' + (total - lastC) + '章' : '') + '</span></div>';
     }).join('') + '</div>';
   }
