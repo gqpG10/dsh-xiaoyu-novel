@@ -131,6 +131,8 @@ import { analyzeAiTaste, gateAiTaste, summarizeAiTaste } from './lib/ai-taste.mj
 import { checkSixBeats } from './lib/chapter-blueprint.mjs'
 import { auditForeshadows, gateForeshadow, summarizeForeshadow } from './lib/foreshadow-audit.mjs'
 import { loadStyleConfig, writeStyleConfig, checkChapterStyle, summarizeStyleCheck } from './lib/style-config.mjs'
+import { checkFourLines, payoffDensity, loadFourLines, summarizePacing } from './lib/pacing-core.mjs'
+import { loadBlacklist, scanBlacklist, gateBlacklist } from './lib/blacklist.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2116,6 +2118,46 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'pacing' && req.method === 'GET') {
+          // 3.43.0 节奏可视化：四线断流 + 爽点密度
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const gap = Number(url.searchParams.get('gap')) || 5
+          const maxGap = Number(url.searchParams.get('maxGap')) || 4
+          const chDir = path.join(novelDir, 'chapters')
+          const chapters = []
+          try {
+            const files = readdirSync(chDir).filter((f) => /\.md$/i.test(f)).sort()
+            for (const f of files) {
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { continue }
+              if (!ch || ch.ok === false) continue
+              chapters.push({ file: f, text: String(ch.body || '').slice(0, 3000) })
+            }
+          } catch { /* 无目录 */ }
+          const four = checkFourLines(chapters, loadFourLines(novelDir), { gap })
+          const pay = payoffDensity(chapters, { maxGap })
+          json(res, 200, { ok: true, chapters: chapters.length, four, payoff: pay, summary: summarizePacing(four, pay) })
+          return
+        }
+
+        if (route === 'blacklist' && req.method === 'GET') {
+          // 3.43.0 禁忌黑名单：读列表；带 file 则单独查该章
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const list = loadBlacklist(novelDir)
+          const file = url.searchParams.get('file')
+          if (file) {
+            const stem = String(file).replace(/\.md$/i, '')
+            let ch = null
+            try { ch = readChapter(novelDir, stem + '.md') } catch { ch = null }
+            if (!ch || ch.ok === false) { json(res, 404, { ok: false, error: '章节不存在' }); return }
+            const r = scanBlacklist(String(ch.body || ''), list)
+            json(res, 200, { ...r, file: stem, listSize: list.length })
+            return
+          }
+          json(res, 200, { ok: true, list, listSize: list.length })
+          return
+        }
+
         if (route === 'foreshadow-audit' && req.method === 'GET') {
           // 3.42.0 伏笔生命周期审查（逾期/矛盾/缺章/长期挂起）
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2397,6 +2439,8 @@ export async function registerCreatorRoutes(ctx) {
           let styleMode = 'warn'
           // 伏笔与文风基准在发布循环外只算一次
           const foreshadowAudit = auditForeshadows(novelDir, { staleAfter: 20 })
+          let blacklistMode = 'block'
+          const blacklistList = loadBlacklist(novelDir)
           const styleCfg = loadStyleConfig(novelDir)
           const styleNames = (() => {
             const out = []
@@ -2423,6 +2467,8 @@ export async function registerCreatorRoutes(ctx) {
             if (fm2 && /^(block|warn)$/i.test(fm2[1])) foreshadowMode = fm2[1].toLowerCase()
             const sm2 = /^\s*style_mode\s*:\s*(\w+)/m.exec(projRaw)
             if (sm2 && /^(block|warn)$/i.test(sm2[1])) styleMode = sm2[1].toLowerCase()
+            const bm2 = /^\s*blacklist_mode\s*:\s*(\w+)/m.exec(projRaw)
+            if (bm2 && /^(block|warn)$/i.test(bm2[1])) blacklistMode = bm2[1].toLowerCase()
           } catch { /* 用默认 */ }
           const results = []
           for (const item of sorted) {
@@ -2450,6 +2496,10 @@ export async function registerCreatorRoutes(ctx) {
             const dq = scanDialogueQuotes(bodyText)
             const dqGate = gateDialogueQuotes(dq, dialogueQuoteMode)
             if (!dqGate.pass) { results.push({ file, ok: false, error: dqGate.reason, quoteViolations: dq.violations.slice(0, 5) }); continue }
+            // 3.43.0 禁忌黑名单：默认 block（禁忌是硬红线），项目设 blacklist_mode: warn 可放行。
+            const bl = scanBlacklist(bodyText, blacklistList)
+            const blGate = gateBlacklist(bl, blacklistMode)
+            if (!blGate.pass) { results.push({ file, ok: false, error: blGate.reason, kind: 'blacklist', hits: bl.hits.slice(0, 5) }); continue }
             // 3.42.0 伏笔门禁：高危逾期未回收时按 foreshadow_mode 处理。
             const fsGate = gateForeshadow(foreshadowAudit, foreshadowMode)
             if (!fsGate.pass) { results.push({ file, ok: false, error: fsGate.reason, kind: 'foreshadow' }); continue }

@@ -119,7 +119,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.42.0';
+var BUILD = '3.43.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -157,7 +157,9 @@ var BUILD = '3.42.0';
             // 3.41.0 AI 味检测结果
             taste: null, tasteOne: null, tasteErr: '',
             // 3.42.0 伏笔审查 / 文风基准
-            fs: null, fsErr: '', styleCfg: null, styleRows: null };
+            fs: null, fsErr: '', styleCfg: null, styleRows: null,
+            // 3.43.0 节奏 / 黑名单
+            pacing: null, pacingErr: '', bl: null };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -837,6 +839,8 @@ var BUILD = '3.42.0';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
+    out += vPacing();
+    out += vBlacklist();
     out += vForeshadow();
     out += vStyleCheck();
     out += vAiTaste();
@@ -1219,6 +1223,48 @@ var BUILD = '3.42.0';
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
   }
+  /* 3.43.0 节奏可视化：四线断流 + 爽点密度。 */
+  function vPacing() {
+    var p = S.pacing || {}
+    var four = p.four || {}
+    var pay = p.payoff || {}
+    var head = '<div class="card"><h3>节奏可视化 <span class="badge">四线 × 爽点</span>' +
+      (pay.densityPct != null ? '<span class="pill ' + (pay.maxGap <= 4 ? 'ok' : 'bad') + '">爽点 ' + pay.densityPct + '%</span>' : '') + '</h3>'
+    if (S.pacingErr) head += '<div class="err">读取失败：' + esc(S.pacingErr) + '</div>'
+    head += '<div class="muted" style="margin-bottom:6px">四线：主线/支线/感情线/伏笔线，靠关键词命中判定（项目可放 <code>four_lines.yml</code> 自定义信号词，默认词表对克制文风会偏低）。' +
+      '爽点：打脸/反转/赢/拿下等动作词，连续 4 章无爽点报警。</div>'
+    if (four.lineStats) {
+      head += '<div style="margin-bottom:6px">' + four.lineStats.map(function (x) {
+        return '<span style="display:inline-block;margin-right:10px;font-size:12px">' + esc(x.line) +
+          ' <b style="color:' + (x.ratio >= 0.4 ? '#49d17d' : '#e8c46a') + '">' + Math.round(x.ratio * 100) + '%</b></span>'
+      }).join('') + '</div>'
+    }
+    if (four.gaps && four.gaps.length) {
+      head += '<div style="max-height:26vh;overflow-y:auto">' + four.gaps.slice(0, 15).map(function (g) {
+        return '<div class="muted" style="border-bottom:1px solid #262b33;padding:4px 0;font-size:12px;color:#e8c46a">' + esc(g.message) + '</div>'
+      }).join('') + '</div>'
+    }
+    if (pay.summary) head += '<div style="margin-top:6px;font-size:12px">' + esc(pay.summary) + '</div>'
+    head += '<div class="btnrow" style="margin-top:6px"><button type="button" id="paceScan" class="sm pri">统计节奏</button></div>'
+    return head + '</div>'
+  }
+  /* 3.43.0 禁忌黑名单：novel/blacklist.yml 里的条目，命中即拦（默认 block）。 */
+  function vBlacklist() {
+    var b = S.bl || {}
+    var list = b.list || []
+    var head = '<div class="card"><h3>禁忌黑名单 <span class="badge">' + list.length + ' 条</span></h3>'
+    head += '<div class="muted" style="margin-bottom:6px">在书目录放 <code>blacklist.yml</code>，一行一条（或 <code>- 条目</code>），写绝对禁止出现的桥段/词句。' +
+      '发布时命中即拒发；项目 <code>blacklist_mode: warn</code> 可改为只警告。</div>'
+    if (list.length) {
+      head += '<div style="max-height:22vh;overflow-y:auto;font-size:12px">' + list.slice(0, 30).map(function (w) {
+        return '<div style="border-bottom:1px solid #262b33;padding:3px 0">' + esc(w) + '</div>'
+      }).join('') + '</div>'
+    } else {
+      head += '<div class="muted">还没有 blacklist.yml —— 点下方按钮可生成模板</div>'
+    }
+    head += '<div class="btnrow" style="margin-top:6px"><button type="button" id="blScan" class="sm pri">读取黑名单</button></div>'
+    return head + '</div>'
+  }
   /* 3.42.0 伏笔生命周期审查：逾期/状态矛盾/目标章缺失/长期挂起。 */
   function vForeshadow() {
     var f = S.fs || {}
@@ -1304,6 +1350,20 @@ var BUILD = '3.42.0';
     return head + '</div>';
   }
   function bindForeshadowAndStyle() {
+    var p1 = $('paceScan')
+    if (p1) p1.addEventListener('click', function () {
+      note('统计节奏中…（章节多会慢一点）')
+      get('pacing', { path: S.ws || '' }).then(function (d) {
+        S.pacing = d || {}; S.pacingErr = d && d.ok === false ? d.error : ''; render()
+        note('完成：' + ((d && d.summary) || ''))
+      }).catch(function (e) { note('统计失败：' + ((e && e.message) || e)) })
+    })
+    var b1 = $('blScan')
+    if (b1) b1.addEventListener('click', function () {
+      get('blacklist', { path: S.ws || '' }).then(function (d) {
+        S.bl = d || {}; render(); note('黑名单 ' + ((d && d.listSize) || 0) + ' 条')
+      }).catch(function (e) { note('读取失败：' + ((e && e.message) || e)) })
+    })
     var f1 = $('fsScan')
     if (f1) f1.addEventListener('click', function () {
       note('审查伏笔中…')
