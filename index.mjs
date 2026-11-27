@@ -135,6 +135,7 @@ import { checkFourLines, payoffDensity, loadFourLines, summarizePacing } from '.
 import { loadBlacklist, scanBlacklist, gateBlacklist } from './lib/blacklist.mjs'
 import { suggestFourLines, writeFourLines, readFourLinesRaw } from './lib/four-lines-gen.mjs'
 import { auditVolumes, summarizeVolumes } from './lib/volume-lines.mjs'
+import { memoryHealth, syncMemories, compressRange, summarizeMemory } from './lib/memory-sync.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2120,6 +2121,33 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'memory-health' && req.method === 'GET') {
+          // 3.45.0 记忆健康度
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const h = memoryHealth(novelDir)
+          json(res, 200, { ...h, summary: summarizeMemory(h) })
+          return
+        }
+
+        if (route === 'memory-sync' && req.method === 'POST') {
+          // 3.45.0 批量回填记忆（纯本地摘要）
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const out = syncMemories(novelDir, { limit: body.limit, force: body.force === true })
+          invalidateAllCaches()
+          json(res, 200, { ...out, summary: summarizeMemory(out) })
+          return
+        }
+
+        if (route === 'memory-compress' && req.method === 'POST') {
+          // 3.45.0 把连续区间压成段记忆
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const out = compressRange(novelDir, { from: body.from, to: body.to, name: body.name })
+          json(res, out.ok ? 200 : 400, out)
+          return
+        }
+
         if (route === 'four-lines' && req.method === 'GET') {
           // 3.44.0 四线信号词：现有原文 + 自动挖的候选
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2588,6 +2616,13 @@ export async function registerCreatorRoutes(ctx) {
             try {
               const pub = await fanqiePublish(a, { bookId, title, content: contentHtml })
               markPublished(novelDir, stem, { title, bookId, itemId: pub.itemId, no })
+              // 3.45.0 发布成功即自动补这一章的记忆（之前要手动点，长篇根本补不全）
+              try {
+                const memDir = path.join(novelDir, 'memory')
+                mkdirSync(memDir, { recursive: true })
+                const sum = summarizeChapter(bodyText)
+                if (sum.ok) writeFileSync(path.join(memDir, stem + '.yml'), sum.summary, 'utf8')
+              } catch { /* 记忆补失败不影响发布结果 */ }
               results.push({ file, ok: true, title, itemId: pub.itemId, no })
             } catch (e) {
               results.push({ file, ok: false, title, error: String((e && e.message) || e) })
