@@ -139,6 +139,8 @@ import { memoryHealth, syncMemories, compressRange, summarizeMemory } from './li
 import { preflightChapters, summarizePreflight } from './lib/preflight.mjs'
 import { detectRepeatedImagery, rhythmCurve, detectCharacterAbsence, summarizeCross } from './lib/cross-chapter.mjs'
 import { classifyCharacters, filterForGraph, summarizeCast } from './lib/cast-filter.mjs'
+import { scanBooks, markRegistered, summarizeScan } from './lib/book-scan.mjs'
+import { setNovelDirCtx } from './lib/panel-core.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -1698,6 +1700,9 @@ export async function registerCreatorRoutes(ctx) {
         // url/route 解析进 try：畸形 requestTarget 不至于绕过错误通道裸崩
         const url = new URL(req.url, 'http://dsh.internal')
         const route = url.pathname.replace(/^\/api\/xiaoyu-novel\/?/, '')
+        // 3.48.0 请求级书目录：?novel=E:/小说创作/novel2 指定用哪本书。
+        // 设置一次，下面 96 个 resolveNovelRoot 调用自动生效，落地还原在 finally。
+        setNovelDirCtx(url.searchParams.get('novel'))
         // ── 静态样式：面板 CSS 正文（lib/base.css）按请求现读下发 ──────────
         // 客户端只注入 <link href="/api/xiaoyu-novel/client.css">，正文现读——
         // 改样式无需重启，GUI 刷新即生效（no-cache）。同前缀、已被围栏把关。
@@ -2121,6 +2126,21 @@ export async function registerCreatorRoutes(ctx) {
             return { problems }
           })
           json(res, 200, cons)
+          return
+        }
+
+        if (route === 'book-scan' && req.method === 'GET') {
+          // 3.48.0 扫描工作区内所有书（同一工作区可有多本：novel / novel2 …）
+          const pathParam = url.searchParams.get('path')
+          const depth = Number(url.searchParams.get('depth')) || 2
+          let scanRoot = resolveNovelRoot(pathParam, ctx.workspaceRegistry)
+          // resolveNovelRoot 会返回具体书目录，这里要往上退到工作区根
+          const wss = listWorkspaces(ctx.workspaceRegistry).map((w) => w.path)
+          if (pathParam) scanRoot = path.resolve(pathParam)
+          const r = scanBooks(scanRoot, { depth, limit: 60 })
+          if (!r.ok) { json(res, 400, r); return }
+          const marked = markRegistered(r.books, wss)
+          json(res, 200, { ...r, books: marked, summary: summarizeScan(r) })
           return
         }
 
