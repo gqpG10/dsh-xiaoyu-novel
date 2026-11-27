@@ -136,6 +136,7 @@ import { loadBlacklist, scanBlacklist, gateBlacklist } from './lib/blacklist.mjs
 import { suggestFourLines, writeFourLines, readFourLinesRaw } from './lib/four-lines-gen.mjs'
 import { auditVolumes, summarizeVolumes } from './lib/volume-lines.mjs'
 import { memoryHealth, syncMemories, compressRange, summarizeMemory } from './lib/memory-sync.mjs'
+import { afterChapterDone, buildChain, readChapterMemory, listSegments } from './lib/memory-chain.mjs'
 import { preflightChapters, summarizePreflight } from './lib/preflight.mjs'
 import { detectRepeatedImagery, rhythmCurve, detectCharacterAbsence, summarizeCross } from './lib/cross-chapter.mjs'
 import { classifyCharacters, filterForGraph, summarizeCast } from './lib/cast-filter.mjs'
@@ -3375,7 +3376,16 @@ function styleRegisterGroup(register) {
         if (route === 'chapter-status' && req.method === 'POST') {
           const body = await readBody(req, res)
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
-          json(res, 200, mutateChapterStatus(novelDir, body.file, body.status))
+          const stRes = mutateChapterStatus(novelDir, body.file, body.status)
+          // 3.51.0 章节完成即同步记忆 + 重建下一章前情链（原来看状态改 accepted 是"完成"的信号）
+          let memSync = null
+          try {
+            if (String(body.status || '').toLowerCase() === 'accepted' && stRes && stRes.ok !== false) {
+              const stem = String(body.file || '').replace(/\.md$/i, '')
+              memSync = afterChapterDone(novelDir, stem, { summarizeChapter })
+            }
+          } catch (e) { memSync = { ok: false, error: String((e && e.message) || e) } }
+          json(res, 200, { ...(stRes || {}), memory: memSync })
           return
         }
 
@@ -3450,7 +3460,17 @@ function styleRegisterGroup(register) {
             } catch { /* 章号读不到就只按 stem 匹配 */ }
             ledger = chapterLedgerHint(novelDir, safe, num)
           } catch { /* 提示失败静默 */ }
-          json(res, 200, ledger ? { ...saved, ledger } : saved)
+          // 3.51.0 保存即同步记忆 + 前情链：保存正文就是「这一章写完了」的强信号。
+          // 记忆只在缺失时生成（已有则不动，避免把人工修正冲掉）；链每次都重建。
+          let memSync = null
+          try {
+            const stem0 = path.basename(String(body.file ?? '')).replace(/\.md$/i, '')
+            if (/^[A-Za-z0-9_-]+$/.test(stem0)) {
+              memSync = afterChapterDone(novelDir, stem0, { summarizeChapter })
+              invalidateAllCaches()
+            }
+          } catch (e) { memSync = { ok: false, error: String((e && e.message) || e) } }
+          json(res, 200, { ...(ledger ? { ...saved, ledger } : saved), memory: memSync })
           return
         }
 
