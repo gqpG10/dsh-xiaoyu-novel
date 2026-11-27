@@ -136,6 +136,8 @@ import { loadBlacklist, scanBlacklist, gateBlacklist } from './lib/blacklist.mjs
 import { suggestFourLines, writeFourLines, readFourLinesRaw } from './lib/four-lines-gen.mjs'
 import { auditVolumes, summarizeVolumes } from './lib/volume-lines.mjs'
 import { memoryHealth, syncMemories, compressRange, summarizeMemory } from './lib/memory-sync.mjs'
+import { preflightChapters, summarizePreflight } from './lib/preflight.mjs'
+import { detectRepeatedImagery, rhythmCurve, detectCharacterAbsence, summarizeCross } from './lib/cross-chapter.mjs'
 import { beginLogin, finishLogin, parsePastedCookie, readLoginSession, findChrome } from './lib/fanqie-login.mjs'
 import { checkLogin, saveAuth, loadAuth, publishChapter as fanqiePublish, readLedger, markPublished } from './lib/fanqie-publish.mjs'
 import { bibleUsage, touchBible, summarizeChapter, readPrevMemory } from './lib/living-bible.mjs'
@@ -2118,6 +2120,64 @@ export async function registerCreatorRoutes(ctx) {
             return { problems }
           })
           json(res, 200, cons)
+          return
+        }
+
+        if (route === 'cross-chapter' && req.method === 'GET') {
+          // 3.46.0 跨章检测：重复意象 + 节奏曲线 + 角色缺席
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const chDir = path.join(novelDir, 'chapters')
+          const chapters = []
+          try {
+            for (const f of readdirSync(chDir).filter((x) => /\.md$/i.test(x)).sort()) {
+              let ch = null
+              try { ch = readChapter(novelDir, f) } catch { continue }
+              if (ch && ch.ok !== false) chapters.push({ file: f.replace(/\.md$/i, ''), text: String(ch.body || '') })
+            }
+          } catch { /* 无目录 */ }
+          const names = []
+          try {
+            const cdir = path.join(novelDir, 'characters')
+            for (const f of readdirSync(cdir)) {
+              if (!/\.md$/i.test(f)) continue
+              const raw = readFileSync(path.join(cdir, f), 'utf8')
+              const m = /^\s*name\s*:\s*(.+)$/m.exec(raw) || /^\s*title\s*:\s*(.+)$/m.exec(raw)
+              if (m) names.push(m[1].trim().replace(/["']/g, ''))
+            }
+          } catch { /* 无 characters */ }
+          const imagery = detectRepeatedImagery(chapters, { minChapters: 4, maxItems: 15 })
+          const rhythm = rhythmCurve(chapters, { flatWindow: 8 })
+          const absence = detectCharacterAbsence(chapters, names, { gapWarn: 30 })
+          json(res, 200, {
+            ok: true, chapters: chapters.length, imagery, rhythm, absence,
+            summary: summarizeCross({ imagery, rhythm, absence }),
+          })
+          return
+        }
+
+        if (route === 'preflight' && req.method === 'POST') {
+          // 3.46.0 发布预检：把全部检查提前跑一遍，出「可发/警告/阻断」表
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          const chDir = path.join(novelDir, 'chapters')
+          let files = Array.isArray(body.files) && body.files.length
+            ? body.files.map((f) => String(f).replace(/\.md$/i, '') + '.md')
+            : (() => { try { return readdirSync(chDir).filter((f) => /\.md$/i.test(f)).sort() } catch { return [] } })()
+          // 角色名 + 文风配置 + 黑名单
+          const styleNames = []
+          try {
+            const cdir = path.join(novelDir, 'characters')
+            for (const f of readdirSync(cdir)) {
+              if (!/\.md$/i.test(f)) continue
+              const raw = readFileSync(path.join(cdir, f), 'utf8')
+              const m = /^\s*name\s*:\s*(.+)$/m.exec(raw) || /^\s*title\s*:\s*(.+)$/m.exec(raw)
+              if (m) styleNames.push(m[1].trim().replace(/["']/g, ''))
+            }
+          } catch { /* 无 characters */ }
+          const style = loadStyleConfig(novelDir)
+          const blacklist = loadBlacklist(novelDir)
+          const out = preflightChapters(novelDir, files, { readChapter, style, styleNames, blacklist })
+          json(res, 200, { ...out, summary: summarizePreflight(out) })
           return
         }
 

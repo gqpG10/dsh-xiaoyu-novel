@@ -119,7 +119,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.45.0';
+var BUILD = '3.46.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -163,7 +163,11 @@ var BUILD = '3.45.0';
             // 3.44.0 四项线词 / 卷纲
             fl: null, vol: null,
             // 3.45.0 记忆同步
-            mem: null, memErr: '', memSyncResult: '' };
+            mem: null, memErr: '', memSyncResult: '',
+            // 3.46.0 预检结果 / 分组折叠状态（默认展开结构组，质量组也展开）
+            preflight: null, groupQuality: true, groupStruct: true,
+            // 3.46.0 跨章检测
+            cross: null, crossErr: '' };
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -843,14 +847,26 @@ var BUILD = '3.45.0';
             ' <input type="checkbox" class="todoChk" data-k="' + esc(problemKey(p)) + '"' + (S.todoDone[problemKey(p)] ? ' checked' : '') + '></span></div>';
         }).join('') : '<div class="muted ok">没有问题 ✓</div>') + '</div>';
     }
-    out += vMemorySync();
-    out += vFourLinesVolumes();
-    out += vPacing();
-    out += vBlacklist();
-    out += vForeshadow();
-    out += vStyleCheck();
-    out += vAiTaste();
-    out += vDialogueQuote();
+    // 3.46.0 面板重组：把 7 张卡拆成「质量」「结构」两组，可折叠；
+    // 顶部一键全面检查，出总报告（省得一张一张点按钮）。
+    out += vPreflight();
+    out += vCrossChapter();
+    out += '<div class="btnrow" style="margin-bottom:8px">' +
+      '<button type="button" id="runAllChecks" class="sm pri">一键全面检查</button>' +
+      '<button type="button" id="groupQuality" class="sm">' + (S.groupQuality ? '▼' : '▶') + ' 质量（文风/AI味/引号）</button>' +
+      '<button type="button" id="groupStruct" class="sm">' + (S.groupStruct ? '▼' : '▶') + ' 结构（记忆/四线/伏笔/黑名单）</button></div>';
+    if (S.groupStruct) {
+      out += vMemorySync();
+      out += vFourLinesVolumes();
+      out += vPacing();
+      out += vForeshadow();
+      out += vBlacklist();
+    }
+    if (S.groupQuality) {
+      out += vStyleCheck();
+      out += vAiTaste();
+      out += vDialogueQuote();
+    }
     out += vConsistency();
     out += vQualityTrend();
     out += '<div class="card"><h3>全书体检' + (S.auditBusy ? '<span class="badge">计算中…</span>' : '') + '</h3>' +
@@ -1229,6 +1245,65 @@ var BUILD = '3.45.0';
     return '<div class="card"><h3>合规体检 <span class="pill bad">' + t.hits + ' 命中 · ' + t.flagged + ' 章</span></h3>' + rows +
       '<div class="muted" style="margin-top:4px">拒绝级=发布必改；风险级=发布前过目；提示级=可能限流。词库可在 compliance.yml 扩充。</div></div>';
   }
+  /* 3.46.0 跨章检测：单章检测抓不到的那类问题（重复意象/节奏偏平/角色缺席）。 */
+  function vCrossChapter() {
+    var c = S.cross || {}
+    var img = c.imagery || {}
+    var rhy = c.rhythm || {}
+    var ab = c.absence || {}
+    var head = '<div class="card"><h3>跨章检测 <span class="badge">章与章之间</span>' +
+      (c.summary ? '<span class="pill ' + ((img.total || 0) ? 'bad' : 'ok') + '">' + esc((c.summary || '').slice(0, 24)) + '</span>' : '') + '</h3>'
+    if (S.crossErr) head += '<div class="err">读取失败：' + esc(S.crossErr) + '</div>'
+    head += '<div class="muted" style="margin-bottom:6px">单章检测看不见的问题：同一个意象在几十章里反复用、连续多章句长结构几乎一致、某角色长期不露面。</div>'
+    if (img.items && img.items.length) {
+      head += '<div style="font-size:12px;margin-bottom:6px"><b>重复意象（' + img.total + '）</b></div><div style="max-height:18vh;overflow-y:auto">' +
+        img.items.slice(0, 10).map(function (x) {
+          return '<div style="border-bottom:1px solid #262b33;padding:3px 0;font-size:12px">' +
+            esc(x.phrase) + ' <b style="color:' + (x.chapters >= 15 ? '#ff8a8a' : '#e8c46a') + '">→ ' + x.chapters + ' 章</b></div>'
+        }).join('') + '</div>'
+    }
+    if (rhy.flats && rhy.flats.length) {
+      head += '<div style="font-size:12px;margin-top:6px"><b>节奏偏平（' + rhy.flats.length + ' 段）</b></div>' +
+        rhy.flats.slice(0, 6).map(function (f) {
+          return '<div class="muted" style="font-size:12px;color:#e8c46a">' + esc(f.from) + ' → ' + esc(f.to) + '（8 章句长结构几乎一致）</div>'
+        }).join('')
+    }
+    if (ab.items && ab.items.length) {
+      head += '<div style="font-size:12px;margin-top:6px"><b>角色缺席</b></div>' +
+        ab.items.slice(0, 5).map(function (x) {
+          return '<div class="muted" style="font-size:12px;color:#e8c46a">' + esc(x.message) + '</div>'
+        }).join('')
+    }
+    head += '<div class="btnrow" style="margin-top:6px"><button type="button" id="crossRun" class="sm pri">跑跨章检测</button></div>'
+    return head + '</div>'
+  }
+  /* 3.46.0 发布预检：把全部检查提前跑一遍，出「可发/警告/阻断」表。 */
+  function vPreflight() {
+    var p = S.preflight || {}
+    var rows = p.rows || []
+    var head = '<div class="card"><h3>发布预检 <span class="badge">发前先看</span>' +
+      (p.total != null ? '<span class="pill ' + (p.block ? 'bad' : p.warn ? '' : 'ok') + '">' + p.pass + '/' + p.total + ' 可发</span>' : '') + '</h3>'
+    head += '<div class="muted" style="margin-bottom:6px">发布前把黑名单/引号/文风/AI味/伏笔全部跑一遍，列出每章能不能发。' +
+      '勾选了章节就只查勾选的，没勾就查全书。</div>'
+    if (rows.length) {
+      head += '<div style="max-height:34vh;overflow-y:auto">' + rows.map(function (r) {
+        var icon = r.level === 'ok' ? '✅' : r.level === 'warn' ? '⚠️' : '❌'
+        var col = r.level === 'ok' ? '#49d17d' : r.level === 'warn' ? '#e8c46a' : '#ff8a8a'
+        return '<div style="border-bottom:1px solid #262b33;padding:5px 0;font-size:12px">' +
+          '<span style="color:' + col + '">' + icon + ' ' + esc(r.file) + '</span> ' +
+          '<span class="muted">（' + r.chars + ' 字' + (r.aiScore != null ? ' · AI味 ' + r.aiScore : '') +
+          (r.dialoguePct != null ? ' · 对话 ' + r.dialoguePct + '%' : '') + '）</span>' +
+          (r.issues && r.issues.length ? '<div class="muted" style="margin-top:2px;color:' + col + '">' +
+            esc(r.issues.map(function (i) { return i.message }).join('；')) + '</div>' : '') + '</div>'
+      }).join('') + '</div>'
+    } else if (p.total != null) {
+      head += '<div class="muted">' + esc(p.summary || '没有可预检的章节') + '</div>'
+    }
+    head += '<div class="btnrow" style="margin-top:6px">' +
+      '<button type="button" id="pfRun" class="sm pri">预检勾选章节</button>' +
+      '<button type="button" id="pfRunAll" class="sm">预检全书</button></div>'
+    return head + '</div>'
+  }
   /* 3.45.0 记忆自动同步：覆盖率 + 批量回填 + 段压缩。 */
   function vMemorySync() {
     var m = S.mem || {}
@@ -1412,6 +1487,46 @@ var BUILD = '3.45.0';
     return head + '</div>';
   }
   function bindForeshadowAndStyle() {
+    var cr = $('crossRun')
+    if (cr) cr.addEventListener('click', function () {
+      note('跨章检测中…（120 章约 2 秒）')
+      get('cross-chapter', { path: S.ws || '' }).then(function (d) {
+        S.cross = d || {}; S.crossErr = d && d.ok === false ? d.error : ''; render()
+        note('完成')
+      }).catch(function (e) { note('检测失败：' + ((e && e.message) || e)) })
+    })
+    var gq = $('groupQuality')
+    if (gq) gq.addEventListener('click', function () { S.groupQuality = !S.groupQuality; render() })
+    var gs = $('groupStruct')
+    if (gs) gs.addEventListener('click', function () { S.groupStruct = !S.groupStruct; render() })
+    var ra = $('runAllChecks')
+    if (ra) ra.addEventListener('click', function () {
+      // 一键：预检（含引号/文风/AI味/黑名单/伏笔）+ 记忆 + 节奏
+      note('全面检查中…章节多会慢一点')
+      var jobs = [
+        postJson('preflight', { path: S.ws || '' }).then(function (d) { S.preflight = d || {} }).catch(function () {}),
+        get('memory-health', { path: S.ws || '' }).then(function (d) { S.mem = d || {} }).catch(function () {}),
+        get('pacing', { path: S.ws || '' }).then(function (d) { S.pacing = d || {} }).catch(function () {}),
+        get('foreshadow-audit', { path: S.ws || '' }).then(function (d) { S.fs = d || {} }).catch(function () {}),
+      ]
+      Promise.all(jobs).then(function () { S.groupQuality = true; S.groupStruct = true; render(); note('全面检查完成') })
+    })
+    var pf = $('pfRun')
+    if (pf) pf.addEventListener('click', function () {
+      var picked = Object.keys(S.selSet).filter(function (k) { return S.selSet[k] })
+      if (!picked.length) { note('先在章节列表勾选要预检的章'); return }
+      note('预检中…')
+      postJson('preflight', { path: S.ws || '', files: picked }).then(function (d) {
+        S.preflight = d || {}; render(); note((d && d.summary) || '完成')
+      }).catch(function (e) { note('预检失败：' + ((e && e.message) || e)) })
+    })
+    var pfa = $('pfRunAll')
+    if (pfa) pfa.addEventListener('click', function () {
+      note('预检全书中…')
+      postJson('preflight', { path: S.ws || '' }).then(function (d) {
+        S.preflight = d || {}; render(); note((d && d.summary) || '完成')
+      }).catch(function (e) { note('预检失败：' + ((e && e.message) || e)) })
+    })
     var mr = $('memRefresh')
     if (mr) mr.addEventListener('click', function () {
       get('memory-health', { path: S.ws || '' }).then(function (d) {

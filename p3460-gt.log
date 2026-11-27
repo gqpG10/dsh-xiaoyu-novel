@@ -1,0 +1,22 @@
+files: 246
+gitee progress: 25 / 246
+gitee progress: 50 / 246
+gitee progress: 75 / 246
+gitee progress: 100 / 246
+gitee progress: 125 / 246
+WARN templates/novel/chapters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/characters/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/exports/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/outlines/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/research/.gitkeep 400 {"messages":["content is empty"]}
+WARN templates/novel/science/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 150 / 246
+WARN templates/novel/world/.gitkeep 400 {"messages":["content is empty"]}
+gitee progress: 175 / 246
+gitee progress: 200 / 246
+gitee progress: 225 / 246
+gitee files created: 5 updated: 234
+gitee tag: 201 {"name":"v3.46.0","message":"","commit":{"sha":"58171b0339ee42d5d0298089b015f2181b87e83c","date":"2026-11-27T12:39:34+00:00"},"tagger":null}
+gitee release: 201 {"id":1376577,"tag_name":"v3.46.0","target_commitish":"58171b0339ee42d5d0298089b015f2181b87e83c","prerelease":false,"name":"小鱼创作台 v3.46.0","body":"小鱼创作台 v3.46.0\n\n安装：dsha-plugin i
+gitee asset: 201 {"id":3857926,"name":"dsh-xiaoyu-novel-3.46.0.zip","size":1011713,"uploader":{"id":17920814,"login":"gqp20031110","name":"gqpG10","avatar_url":"https://foruda.g
+gitee ok
