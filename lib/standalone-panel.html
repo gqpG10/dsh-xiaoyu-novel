@@ -20,7 +20,10 @@
   button.warn{background:#8a3b3b;border-color:#8a3b3b;color:#fff}
   button.sm{min-height:26px;padding:2px 8px;font-size:12px}
   select{max-width:46vw}
-  nav.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid #33373f;background:#15181c}
+  /* 3.39.0 17 个功能标题吸顶：向下滑动时整排 tab 固定在顶栏下方（top = 顶栏高度），
+     永远可见；必须给不透明背景，否则内容会从 tab 下面透出来。 */
+  nav.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid #33373f;background:#15181c;
+    position:sticky;top:52px;z-index:25}
   nav.tabs button{background:transparent;border:none;color:#b9bdc4;min-height:30px;padding:4px 9px}
   nav.tabs button[aria-current="true"]{color:#fff;background:#2e333a;border-radius:8px}
   main{padding:10px}
@@ -112,11 +115,11 @@
 
 <nav class="tabs" id="tabs"></nav>
 <main id="view"><div class="note">正在读取…</div></main>
-<div id="offline" style="display:none;position:sticky;top:52px;z-index:35;background:#3d3410;color:#e5c063;font-size:12px;padding:4px 10px;text-align:center">离线模式：显示的是缓存数据</div>
+<div id="offline" style="display:none;position:sticky;top:104px;z-index:35;background:#3d3410;color:#e5c063;font-size:12px;padding:4px 10px;text-align:center">离线模式：显示的是缓存数据</div>
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.38.0';
+var BUILD = '3.39.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -3430,9 +3433,9 @@ var BUILD = '3.38.0';
     el.textContent = '已选 ' + n + ' 章';
   }
   function bindChapters() {
-    var fs1 = $('fqSave');
-    if (fs1) fs1.addEventListener('click', function () {
-      var lb = $('fqLoginBegin');
+    // 3.38.1 修复：一键登录的两个按钮必须绑在函数体顶层。
+    // 之前误插进 fqSave 的 click 回调里 —— 不先点「保存令牌」就永远没有 click 监听（点了没反应）。
+    var lb = $('fqLoginBegin');
     if (lb) lb.addEventListener('click', function () {
       S.fqLoginMsg = '正在打开浏览器…';
       render();
@@ -3460,7 +3463,9 @@ var BUILD = '3.38.0';
         }
       }).catch(function (e) { S.fqLoginMsg = '请求失败：' + ((e && e.message) || e); render(); });
     });
-    var ck = $('fqCookie'), cs = $('fqCsrf');
+    var fs1 = $('fqSave');
+    if (fs1) fs1.addEventListener('click', function () {
+      var ck = $('fqCookie'), cs = $('fqCsrf');
       if (!ck || !String(ck.value || '').trim()) { note('Cookie 不能为空'); return; }
       postJson('fanqie-auth', { cookie: ck.value, csrf: cs ? cs.value : '' })
         .then(function () { note('令牌已存（本机，不进仓库）'); S.fq = { configured: true }; render(); })
