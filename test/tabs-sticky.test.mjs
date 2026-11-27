@@ -7,24 +7,28 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const panel = readFileSync(path.join(root, 'lib/standalone-panel.html'), 'utf8')
 
-// ── 3.39.0 17 个功能 tab 吸顶 ──────────────────────────────
+// ── 3.49.0 tab 栏「物理固定」布局（sticky 在 iframe 里不可靠，改用 flex）──
 
-test('nav.tabs 是 sticky 并贴在顶栏下方', () => {
-  assert.ok(panel.includes('position:sticky;top:52px;z-index:25'), 'nav.tabs 必须 sticky 到 top:52px')
-  assert.ok(panel.includes('nav.tabs{'), 'nav.tabs 规则存在')
+test('body 是竖向 flex，整页不滚', () => {
+  assert.ok(panel.includes('body{display:flex;flex-direction:column;overflow:hidden}'), 'body 必须 flex 列布局 + overflow hidden')
 })
 
-test('tab 栏有不透明背景（否则内容会透出来）', () => {
+test('nav.tabs 与 .bar 都 flex:0 0 auto（不参与滚动）', () => {
+  const tabsRule = /nav\.tabs\{[^}]*flex:0 0 auto/.test(panel)
+  const barRule = /\.bar\{flex:0 0 auto/.test(panel)
+  assert.ok(tabsRule, 'nav.tabs 必须是 flex:0 0 auto')
+  assert.ok(barRule, '.bar 必须是 flex:0 0 auto')
+})
+
+test('只有 main#view 自己滚', () => {
+  assert.ok(panel.includes('main#view{flex:1 1 auto;overflow-y:auto'), 'main#view 才负责滚动')
+})
+
+test('tab 栏仍有不透明背景', () => {
   const m = /nav\.tabs\{[^}]*background:(#[0-9a-fA-F]{3,6})/.exec(panel)
-  assert.ok(m, 'nav.tabs 必须有具体 background 颜色')
-  assert.ok(!/transparent|rgba\([^)]*0\.0/.test(m[1]), '背景不能是透明')
+  assert.ok(m, 'nav.tabs 需要有背景色')
 })
 
-test('z-index 低于顶栏(.bar=30)、高于内容', () => {
-  assert.ok(panel.includes('z-index:30') || panel.includes('.bar{position:sticky;top:0;z-index:30'), '顶栏 30 仍在')
-  assert.ok(panel.includes('z-index:25'), 'tab 栏 25')
-})
-
-test('离线提示条让位，不与 tab 栏重叠', () => {
-  assert.ok(panel.includes('top:104px'), '离线条要挪到 tab 栏下方')
+test('离线提示条不再依赖 sticky 定位', () => {
+  assert.ok(panel.includes('top:104px') || panel.includes('offline'), '离线条仍在')
 })

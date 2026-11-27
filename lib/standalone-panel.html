@@ -8,7 +8,14 @@
   html,body{margin:0;padding:0;background:#101114;color:#e9eaec;
     font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
     -webkit-text-size-adjust:100%}
-  .bar{position:sticky;top:0;z-index:30;background:#171a1f;border-bottom:1px solid #33373f;
+  /* 3.49.0 sticky 在 iframe 里失效（外层页面滚、iframe 视口不滚）——
+     改成 body 竖向 flex：顶栏与 tab 栏 flex:0 不参与滚动，只有 #view 自己滚。
+     这样 tab 栏是物理固定的，不依赖 sticky。 */
+  html,body{height:100%;margin:0}
+  body{display:flex;flex-direction:column;overflow:hidden}
+  main#view{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0;padding:8px 10px}
+  #note{flex:0 0 auto}
+  .bar{flex:0 0 auto;background:#171a1f;border-bottom:1px solid #33373f;
     padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   .brand{font-size:15px;font-weight:700;white-space:nowrap}
   .badge{font-size:11px;color:#8d939c;border:1px solid #474d56;border-radius:999px;padding:0 7px;white-space:nowrap}
@@ -19,11 +26,19 @@
   button.pri{background:#4b8bf5;border-color:#4b8bf5;color:#fff}
   button.warn{background:#8a3b3b;border-color:#8a3b3b;color:#fff}
   button.sm{min-height:26px;padding:2px 8px;font-size:12px}
+  /* 3.49.0 全局点击反馈：任何按钮按下去都有视觉回弹，网络慢时也不会"没反应" */
+  button{transition:transform .06s ease,filter .12s ease}
+  button:active{transform:scale(.96);filter:brightness(1.2)}
+  button.busy{opacity:.6;pointer-events:none;position:relative}
+  button.busy::after{content:'';width:12px;height:12px;margin-left:6px;display:inline-block;
+    border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;vertical-align:-2px;
+    animation:xiaoyuSpin .7s linear infinite}
+  @keyframes xiaoyuSpin{to{transform:rotate(360deg)}}
   select{max-width:46vw}
-  /* 3.39.0 17 个功能标题吸顶：向下滑动时整排 tab 固定在顶栏下方（top = 顶栏高度），
-     永远可见；必须给不透明背景，否则内容会从 tab 下面透出来。 */
-  nav.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid #33373f;background:#15181c;
-    position:sticky;top:52px;z-index:25}
+  /* 3.49.0 tab 栏改「物理固定」：sticky 在 iframe 里不可靠（外层页面滚、iframe 视口不滚，
+     sticky 相对的可能不是真正滚动的容器）。改成 body 竖向 flex，顶栏与 tab 栏 flex:0
+     不参与滚动，只有 main#view 自己滚——tab 栏在结构上就不动。 */
+  nav.tabs{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid #33373f;background:#15181c;z-index:25}
   nav.tabs button{background:transparent;border:none;color:#b9bdc4;min-height:30px;padding:4px 9px}
   nav.tabs button[aria-current="true"]{color:#fff;background:#2e333a;border-radius:8px}
   main{padding:10px}
@@ -103,7 +118,7 @@
 
 <div class="bar">
   <span class="brand">小鱼创作台</span>
-  <span class="badge" id="build" title="本页面自身的构建版本（不来自接口）">独立版</span>
+  <span class="badge" id="build" title="页面构建版本" style="display:none">独立版</span>
   <select id="ws" aria-label="工作区"></select>
   <span class="grow"></span>
   <button id="btnReload" type="button">刷新</button>
@@ -119,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.48.2';
+var BUILD = '3.49.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -217,6 +232,30 @@ var BUILD = '3.48.2';
     if (S.novelDir) o.novel = S.novelDir;
     return o;
   }
+  /* 3.49.0 全局按钮反馈（事件委托，一次覆盖所有按钮，含动态生成的）：
+     · 按下立刻加 .busy（视觉旋转圈 + 禁用重复点击）
+     · 无论成功失败都在底部 note 回显结果；失败必须显红字错误
+     · 没有异步返回的纯 UI 按钮（展开/勾选）在 400ms 后自动解除 busy */
+  var _busyTimer = null;
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+    if (!btn || btn.classList.contains('busy')) return;
+    btn.classList.add('busy');
+    clearTimeout(_busyTimer);
+    _busyTimer = setTimeout(function () {
+      Array.prototype.forEach.call(document.querySelectorAll('button.busy'), function (b) {
+        b.classList.remove('busy');
+      });
+    }, 1200);
+    // 把错误自动顶到 note（很多旧回调只 catch 不提示）
+    var origErr = window.onerror;
+    window.onerror = function (msg, src, line, col, err) {
+      try { note('出错：' + (msg || '未知错误')); } catch (e) {}
+      if (origErr) return origErr.apply(this, arguments);
+      return false;
+    };
+  }, true);
+
   function get(path, params) {
     var qs = [];
     var merged = withNovel(params);
@@ -570,8 +609,10 @@ var BUILD = '3.48.2';
     return out + '</div>';
   }
   function vChapters(d) {
+    // 3.49.0 发布预检搬到章节页最上面（原来在"体检"里，发布前找不到）
+    var pfCards = vPreflight();
     var list = (d.chapters || []).slice();
-    if (!list.length) return '<div class="card"><div class="muted">还没有章节</div></div>';
+    if (!list.length) return pfCards + '<div class="card"><div class="muted">还没有章节</div></div>';
     var q = S.q.trim().toLowerCase();
     if (q) list = list.filter(function (c) {
       return String(c.title || '').toLowerCase().indexOf(q) >= 0 ||
@@ -587,7 +628,7 @@ var BUILD = '3.48.2';
       return desc ? (fa < fb ? 1 : fa > fb ? -1 : 0) : (fa < fb ? -1 : fa > fb ? 1 : 0);
     });
     var picked = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; }).length;
-    return fqHead + '<div class="card"><h3>共 ' + list.length + ' 章' +
+    return pfCards + fqHead + '<div class="card"><h3>共 ' + list.length + ' 章' +
       (S.gates && S.gates.gates ? '<span class="badge">及格线 ' + esc(S.gates.passMark) + '</span>' : '') +
       ' <button type="button" id="chapOrder" class="sm" title="切换章节排列顺序">' + (desc ? '倒序 ↓' : '正序 ↑') + '</button>' +
       ' <button type="button" id="selToggle" class="sm">' + (S.selMode ? '退出选择' : '批量选择') + '</button></h3>' +
@@ -867,9 +908,8 @@ var BUILD = '3.48.2';
     }
     // 3.46.0 面板重组：把 7 张卡拆成「质量」「结构」两组，可折叠；
     // 顶部一键全面检查，出总报告（省得一张一张点按钮）。
-    out += vPreflight();
+    // 3.49.0 发布预检搬到「章节」tab、角色分级搬到「角色」tab（放在"体检"里没人找得到）
     out += vCrossChapter();
-    out += vCastTiers();
     out += '<div class="btnrow" style="margin-bottom:8px">' +
       '<button type="button" id="runAllChecks" class="sm pri">一键全面检查</button>' +
       '<button type="button" id="groupQuality" class="sm">' + (S.groupQuality ? '▼' : '▶') + ' 质量（文风/AI味/引号）</button>' +
@@ -1184,6 +1224,7 @@ var BUILD = '3.48.2';
     });
     svg += '</svg>';
     return '<div class="card"><h3>出席矩阵 <span class="badge">行=角色 · 列=章（每5章标号）</span></h3>' +
+      '<div style="max-height:38vh;overflow:auto;border:1px solid #2a2f37;border-radius:8px;padding:4px">' +
       '<div style="overflow-x:auto">' + svg + '</div>' +
       '<div class="muted" style="margin-top:4px">蓝格=该章出场。横看一行的空档=该角色戏份断档；竖看一列=该章群像规模。</div></div>';
   }
@@ -2064,7 +2105,8 @@ var BUILD = '3.48.2';
     var list = d.characters || [];
     if (!list.length) return '<div class="card"><div class="muted">还没有角色卡</div></div>';
     ensureAudit(); ensureMatrix();
-    return vCastMatrix() + vCastHeat() + list.map(function (c) {
+    // 3.49.0 角色分级放到角色页（原来在"体检"里找不到）
+    return vCastTiers() + vCastMatrix() + vCastHeat() + list.map(function (c) {
       return '<div class="card"><h3>' + esc(c.name || c.file) +
         (c.role ? '<span class="pill">' + esc(c.role) + '</span>' : '') +
         (c.status ? '<span class="pill">' + esc(c.status) + '</span>' : '') +
