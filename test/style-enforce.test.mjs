@@ -52,11 +52,11 @@ test('预检：文风 ≥3 条升级为 block，1~2 条仍 warn', () => {
   assert.ok(pf.includes('count: n'), '要带问题条数')
 })
 
-test('面板：本章显示文风基准卡 + 预检有打回重写按钮', () => {
-  const panel = readFileSync(path.join(root, 'lib/standalone-panel.html'), 'utf8')
-  assert.ok(panel.includes('文风基准'), '本章要有文风基准卡')
-  assert.ok(panel.includes('styleRules'), '要读 ctx.styleRules')
-  assert.ok(panel.includes('rewriteBtn'), '预检要有打回按钮')
-  assert.ok(panel.includes('bindRewriteButtons'), '要绑定打回按钮')
-  assert.ok(panel.includes('已复制重写指令'), '点打回要复制重写指令')
+test('后端：文风规则进入本章上下文（写作时就知道基准）', () => {
+  // 面板层的文风卡在 3.58.0 回滚后暂未恢复，但后端契约必须稳住：
+  const cc = readFileSync(path.join(root, 'lib/chapter-context.mjs'), 'utf8')
+  assert.ok(cc.includes('buildStyleRules'), '要有文风规则构建器')
+  assert.ok(cc.includes('styleRules'), 'chapterContext 要返回 styleRules')
+  const pf = readFileSync(path.join(root, 'lib/preflight.mjs'), 'utf8')
+  assert.ok(pf.includes("n >= 3 ? 'block' : 'warn'"), '预检文风要按条数分级')
 })

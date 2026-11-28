@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.57.0';
+var BUILD = '3.58.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -1304,19 +1304,7 @@ var BUILD = '3.57.0';
     var d = S.ctxPack;
     // 3.54.0 前情提要改由「索引」提供（index.yml 的章概要，质量比自己抽的骨架好）
     var briefCard = '<div id="ctxBriefSlot">' + briefBody() + '</div>';
-    // 3.57.0 写作前先看文风基准：把 style.md 语言节 + 当前档位要点摆出来
-    var styleCard = ''
-    try {
-      var sr = d && d.styleRules
-      if (sr && (sr.md || sr.points.length)) {
-        styleCard = '<div class="card" style="border-left:3px solid #d08a3f"><h3>文风基准 <span class="badge">' +
-          (sr.register ? esc(sr.register) : '当前档位') + '</span></h3>' +
-          (sr.md ? '<div class="muted" style="font-size:11.5px;margin-bottom:4px">style.md·语言</div><div style="font-size:12.5px;white-space:pre-wrap;line-height:1.7">' + esc(sr.md) + '</div>' : '') +
-          (sr.points && sr.points.length ? '<div class="muted" style="font-size:11.5px;margin:8px 0 4px">档位要点</div><div style="font-size:12.5px;white-space:pre-wrap;line-height:1.7">' + esc(sr.points.join('\n')) + '</div>' : '') +
-          '</div>'
-      }
-    } catch (e) {}
-    if (!d) return briefCard + styleCard + sel + '<div class="card"><div class="muted">加载中…</div></div>';
+    if (!d) return briefCard + sel + '<div class="card"><div class="muted">加载中…</div></div>';
     if (S.ctxPack === d && d.chapter) {
       var st0 = d.stats || {};
       var brief = '<div class="card" style="border-left:3px solid #4b8bf5"><h3>上下文卡 <span class="badge">写这一章只看这张</span></h3>' +
@@ -1349,7 +1337,7 @@ var BUILD = '3.57.0';
       }).join('') + '<div class="muted" style="margin-top:4px">这些线读者视角未知：正文、对话、心理活动都不得提前揭示。</div></div>';
     }
     out += vBlueprint(d.chapter, S.blueprint && S.blueprint.chapter === d.chapter ? S.blueprint : null);
-    return briefCard + styleCard + sel + out;
+    return briefCard + sel + out;
   }
   /* 3.24.0 合规体检（sumeru 三级敏感词范式）：门禁页发布前最后一道闸。 */
   function ensureCompliance() {
@@ -1452,11 +1440,7 @@ var BUILD = '3.57.0';
           '<span class="muted">（' + r.chars + ' 字' + (r.aiScore != null ? ' · AI味 ' + r.aiScore : '') +
           (r.dialoguePct != null ? ' · 对话 ' + r.dialoguePct + '%' : '') + '）</span>' +
           (r.issues && r.issues.length ? '<div class="muted" style="margin-top:2px;color:' + col + '">' +
-            esc(r.issues.map(function (i) { return i.message }).join('；')) + '</div>' : '') +
-          // 3.57.0 文风打回：block 级的章给「打回重写」按钮（生成带问题清单的重写指令并复制）
-          (r.level === 'block' ? '<div style="margin-top:3px"><button type="button" class="sm rewriteBtn" data-f="' +
-            esc(r.file) + '" data-msg="' + esc((r.issues || []).map(function (i) { return i.message }).join('；')) +
-            '">打回重写</button></div>' : '') + '</div>'
+            esc(r.issues.map(function (i) { return i.message }).join('；')) + '</div>' : '') + '</div>'
       }).join('') + '</div>'
     } else if (p.total != null) {
       head += '<div class="muted">' + esc(p.summary || '没有可预检的章节') + '</div>'
@@ -1681,6 +1665,16 @@ var BUILD = '3.57.0';
         if (!b) return
         S.novelDir = b.novelDir
         try { localStorage.setItem('xiaoyu.novelDir', b.novelDir) } catch (e) {}
+        // 3.58.0 切书必须先清缓存，否则 loadState 会命中老书的 state 缓存
+        try {
+          var kill = []
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i)
+            if (k && (k.indexOf('xiaoyu.cache.state.') === 0 || k.indexOf('state.') === 0)) kill.push(k)
+          }
+          for (var j = 0; j < kill.length; j++) localStorage.removeItem(kill[j])
+        } catch (e) {}
+        S.data = null; S.dataErr = '';
         note('已切换到：' + (b.title || b.novelDir))
         render()
         // 切换后重新拉数据
@@ -4155,6 +4149,29 @@ var BUILD = '3.57.0';
     };
     tabBar();
     $('build').textContent = 'b' + BUILD;
+    // 3.58.0 顶栏始终显示「当前指向哪本书」——选书是最高规则，一眼看得见
+    try {
+      var bn = $('bookName');
+      if (!bn) {
+        bn = document.createElement('span');
+        bn.id = 'bookName';
+        bn.style.cssText = 'margin-left:8px;font-size:12px;padding:2px 8px;border-radius:10px;background:#2a3a2f;color:#8fe3a8;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block';
+        var bar = document.querySelector('.bar');
+        if (bar) bar.appendChild(bn);
+      }
+      if (bn) {
+        if (S.novelDir) {
+          bn.textContent = '当前书：' + S.novelDir.split(/[\\/]/).pop()
+          bn.title = S.novelDir
+          bn.style.background = '#2a3a2f'; bn.style.color = '#8fe3a8'
+        } else {
+          bn.textContent = '未选书'
+          bn.title = ''
+          bn.style.background = '#3a2a2a'; bn.style.color = '#ff9f9f'
+        }
+        bn.style.display = 'inline-block'
+      }
+    } catch (e) {}
     var v = $('view');
     if (S.err && !S.reader && !S.genEd) {
       v.innerHTML = '<div class="err">读取失败：' + esc(S.err) +
@@ -4270,27 +4287,7 @@ var BUILD = '3.57.0';
     var n = Object.keys(S.selSet).filter(function (k) { return S.selSet[k]; }).length;
     el.textContent = '已选 ' + n + ' 章';
   }
-  // 3.57.0 打回重写：生成一份带问题清单的重写指令，复制到剪贴板（交给写手/AI 重写）
-  function bindRewriteButtons() {
-    Array.prototype.forEach.call(document.querySelectorAll('.rewriteBtn'), function (b) {
-      if (b._bound) return
-      b._bound = true
-      b.addEventListener('click', function () {
-        var f = b.getAttribute('data-f') || ''
-        var msg = b.getAttribute('data-msg') || ''
-        var txt = '请重写 ' + f + '。\n\n【硬性要求】\n' +
-          '1. 保持本章已定的情节骨架与人物关系，只改语言。\n' +
-          '2. 必须消除以下文风问题：\n' + msg + '\n\n' +
-          '3. 语言基准：白话打底、短句优先、句长错落（每三四句一个长句）、段落别匀（至少三处单句成段）。\n' +
-          '4. 不写书面腔与翻译腔，不堆四字成语，不写「空气仿佛凝固」这类陈年比喻。\n' +
-          '5. 梗贴人物身份、写进对话里不解释。\n' +
-          '6. 交付只要正文，不写梗概、不写说明。\n'
-        copy(txt).then(function (ok) { note(ok ? ('已复制重写指令（' + f + '），交给写手即可') : '复制失败') })
-      })
-    })
-  }
   function bindChapters() {
-    bindRewriteButtons();
     // 3.38.1 修复：一键登录的两个按钮必须绑在函数体顶层。
     // 之前误插进 fqSave 的 click 回调里 —— 不先点「保存令牌」就永远没有 click 监听（点了没反应）。
     // 3.52.0 查登录会话状态（有进行中的调试浏览器会话就显示端口，方便排查）
@@ -4476,7 +4473,9 @@ var BUILD = '3.57.0';
       S.sess = sess;
       if (S.tab === 'overview') render();
     }).catch(function () {});
-    var ck = 'state.' + S.ws;
+    // 3.58.0 缓存键必须带上"当前选的书"：原来只按工作区做键，
+    // 切换书后立刻命中老书的缓存，页面显示的还是老书（"换书没用"的真因之一）。
+    var ck = 'state.' + S.ws + '#' + (S.novelDir || '');
     var cached = cacheGet(ck);
     if (cached && !S.data) {
       S.data = cached;
