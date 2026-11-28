@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.58.0';
+var BUILD = '3.58.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -258,6 +258,8 @@ var BUILD = '3.58.0';
 
   function get(path, params) {
     var qs = [];
+    // 3.58.1 兜底：没选书时明确告知，不静默打到老书
+    if (!S.novelDir && S.ws) { try { note('还没选书 —— 请先在「概览 → 书库」点一本'); } catch (e) {} }
     var merged = withNovel(params);
     Object.keys(merged).forEach(function (k) {
       if (merged[k] != null) qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(merged[k]));
@@ -297,6 +299,22 @@ var BUILD = '3.58.0';
     return g.human >= pm ? 'good' : (g.human >= pm - 15 ? 'mid' : 'bad');
   }
   function wsQuery() { return withNovel({ path: S.ws }); }
+  // 3.58.1 直拼 URL（下载/导出/打包/环境搬家）用的查询串片段——
+  // 这些绕过 get()/postJson()，必须自己带上当前选的书。
+  function novelQ() {
+    return S.novelDir ? ('&novel=' + encodeURIComponent(S.novelDir)) : ''
+  }
+
+  // 3.58.1 **关键补丁**：页面加载/刷新后必须把上次选的书读回来。
+  // 以前只有「书库点切换」那一下才赋值 S.novelDir，刷新就丢 → 所有请求不带 novel
+  // → 后端回退到 novel/ 老书（"提示词还是老书的"真因）。
+  (function restoreNovelDir() {
+    if (S.novelDir) return
+    try {
+      var saved = localStorage.getItem('xiaoyu.novelDir')
+      if (saved) S.novelDir = saved
+    } catch (e) {}
+  })();
 
   function weekWords() {
     var days = (S.progress && S.progress.days) || [];
@@ -1674,11 +1692,41 @@ var BUILD = '3.58.0';
           }
           for (var j = 0; j < kill.length; j++) localStorage.removeItem(kill[j])
         } catch (e) {}
-        S.data = null; S.dataErr = '';
-        note('已切换到：' + (b.title || b.novelDir))
+        // 3.58.1 **选书是最高规则**：切书 = 把所有已加载的业务数据全清空，
+        // 各 tab 的 ensureXxx() 见数据为 null 会自动按新书重拉。
+        // （以前只清了 state 缓存，封面提示词/四线/节奏/黑名单/伏笔/角色分级
+        //   这些内存里的老书数据还留着，所以切完还是老书的内容。）
+        S.data = null; S.dataErr = ''
+        S.preflight = null; S.cross = null; S.cast = null; S.castErr = ''
+        S.pacing = null; S.pacingErr = ''; S.bl = null; S.fs = null
+        S.mem = null; S.memErr = ''; S.memSyncResult = ''
+        S.vol = null; S.fl = null; S.style = null; S.styleCfg = null; S.styleRows = null
+        S.audit = null; S.gates = null; S.check = null; S.trend = null; S.qTrend = null
+        S.consistency = null; S.compliance = null; S.taste = null; S.tasteOne = null
+        S.dq = null; S.matrix = null; S.cast = null; S.relations = null; S.relErr = ''
+        S.timeline = null; S.world = null; S.foreshadows = null; S.index = null
+        S.bibleUsage = null; S.compliance = null; S.qualityTrend = null
+        S.chapter = null; S.reader = null; S.outline = null; S.beats = null
+        S.radar = null; S.project = null; S.ctxPack = null; S.blueprint = null
+        S.ctxBrief = null; S.ctxAsked = {}; S.ctxChain = null
+        S.progress = null; S.trash = null; S.git = null; S.gitLog = null
+        S.versions = null; S.setup = null; S.slim = null; S.dedupe = null
+        S.autofill = null; S.handoff = null; S.charStates = null
+        S.sixBeats = null; S.idxBriefMsg = ''; S.fcMsg = ''
+        // 缓存与状态全清
+        try {
+          var kill = []
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i)
+            if (k && (k.indexOf('xiaoyu.cache.') === 0 || k.indexOf('state.') === 0 || k.indexOf('cache.') === 0)) kill.push(k)
+          }
+          for (var j = 0; j < kill.length; j++) localStorage.removeItem(kill[j])
+        } catch (e) {}
+        note('已切换到：' + (b.title || b.novelDir) + '（全部功能已重置到这本）')
         render()
-        // 切换后重新拉数据
+        // 重新拉新书的全部数据
         try { loadState() } catch (e) {}
+        try { if (S.tab === 'audit' && typeof ensureTrend === 'function') ensureTrend() } catch (e) {}
       })
     })
     var cu = $('castRun')
@@ -1872,7 +1920,7 @@ var BUILD = '3.58.0';
     var one = $('packOne');
     if (one) one.addEventListener('click', function () {
       if (!S.ws) { note('先接入一个项目'); return; }
-      var u = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=project';
+      var u = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=project' + novelQ();
       var a = document.createElement('a'); a.href = u; a.download = ''; document.body.appendChild(a); a.click(); a.remove();
       note('正在打包本项目…浏览器会开始下载');
     });
@@ -1880,7 +1928,7 @@ var BUILD = '3.58.0';
     if (all) all.addEventListener('click', function () {
       if (!S.ws) { note('先接入一个项目'); return; }
       var withSecrets = window.confirm('是否把番茄令牌（Cookie）也打进包里？\n\n确定 = 包含（换设备后不用重新登录，但包要保管好）\n取消 = 不包含（更安全）');
-      var u = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=all' + (withSecrets ? '&secrets=1' : '');
+      var u = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=all' + (withSecrets ? '&secrets=1' : '') + novelQ();
       var a = document.createElement('a'); a.href = u; a.download = ''; document.body.appendChild(a); a.click(); a.remove();
       note('正在打包全部数据…');
     });
@@ -1915,7 +1963,7 @@ var BUILD = '3.58.0';
     if (one) one.addEventListener('click', function () {
       if (!S.ws) { note('先接入一个项目'); return; }
       var a = document.createElement('a');
-      a.href = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=project';
+      a.href = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=project' + novelQ();
       a.download = '';
       document.body.appendChild(a); a.click(); a.remove();
       note('正在打包本项目…浏览器会开始下载');
@@ -1925,7 +1973,7 @@ var BUILD = '3.58.0';
       if (!S.ws) { note('先接入一个项目'); return; }
       var withSecrets = window.confirm('是否把番茄令牌（Cookie）也打进包里？\n\n确定 = 包含（换设备不用重登，但包要保管好）\n取消 = 不包含（更安全）');
       var a = document.createElement('a');
-      a.href = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=all' + (withSecrets ? '&secrets=1' : '');
+      a.href = API_BASE + 'pack-download?path=' + encodeURIComponent(S.ws) + '&scope=all' + (withSecrets ? '&secrets=1' : '') + novelQ();
       a.download = '';
       document.body.appendChild(a); a.click(); a.remove();
       note('正在打包全部数据…');
@@ -3328,7 +3376,7 @@ var BUILD = '3.58.0';
       '<div class="muted">面板不能直接跑 AI：这里把打包好的指令复制给你，切到 DSH 对话粘贴发送即可。</div></div>';
     out += '<div class="card"><h3>导出中心</h3><div style="display:flex;gap:6px;flex-wrap:wrap">' +
       ['md','txt','epub','docx'].map(function (f) {
-        return '<a class="sm" style="display:inline-block;padding:5px 10px;border:1px solid #3d424a;border-radius:8px;text-decoration:none" href="' + API + 'export-book?path=' + encodeURIComponent(S.ws) + '&format=' + f + '">整本 ' + f.toUpperCase() + '</a>';
+        return '<a class="sm" style="display:inline-block;padding:5px 10px;border:1px solid #3d424a;border-radius:8px;text-decoration:none" href="' + API + 'export-book?path=' + encodeURIComponent(S.ws) + '&format=' + f + novelQ() + '">整本 ' + f.toUpperCase() + '</a>';
       }).join('') + '</div>' +
       '<div class="btnrow" style="margin-top:6px"><button type="button" id="btnCsv" class="sm">导出章节清单 CSV</button></div>' +
       '<div class="muted">平台通用格式：TXT（番茄/七猫直传）· DOCX（起点后台）· EPUB（留存）</div></div>';
@@ -3438,13 +3486,13 @@ var BUILD = '3.58.0';
   function bindTools() {
     // 3.55.0 导出：直接下载（后端现拼现发）
     function downloadExport(kind) {
-      var url = API + 'export-book?path=' + encodeURIComponent(S.ws || '')
+      var url = API + 'export-book?path=' + encodeURIComponent(S.ws || '') + novelQ()
       var fmt = 'txt'
       if (kind === 'docx') fmt = 'docx'
       else if (kind === 'epub') fmt = 'epub'
       else if (kind === 'sel') {
         var files = Object.keys(S.selSet || {}).filter(function (k) { return S.selSet[k] }).join(',')
-        url = API + 'export-selection?path=' + encodeURIComponent(S.ws || '') + '&format=txt&files=' + encodeURIComponent(files)
+        url = API + 'export-selection?path=' + encodeURIComponent(S.ws || '') + '&format=txt&files=' + encodeURIComponent(files) + novelQ()
         fmt = ''
       }
       if (fmt) url += '&format=' + fmt
@@ -3488,7 +3536,7 @@ var BUILD = '3.58.0';
       if (withSecrets && !window.confirm('包含渠道 key 的包等于把模型账号一起带走。\n\n确定要打包吗？')) return
       var a = document.createElement('a')
       // 3.55.0 补 path（后端需要工作区根目录才能定位 DSH home）
-      a.href = API + 'portable-export?secrets=' + (withSecrets ? '1' : '0') +
+      a.href = API + 'portable-export?secrets=' + (withSecrets ? '1' : '0') + novelQ() +
         '&path=' + encodeURIComponent(S.ws || '')
       a.download = ''
       document.body.appendChild(a); a.click(); a.remove()
@@ -3638,7 +3686,7 @@ var BUILD = '3.58.0';
     function exGo(fmt) {
       var files = (($('exFiles') || {}).value || '').trim();
       if (!files) { note('先填章号或文件名'); return; }
-      window.open(API + 'export-selection?path=' + encodeURIComponent(S.ws) + '&format=' + fmt + '&files=' + encodeURIComponent(files), '_blank');
+      window.open(API + 'export-selection?path=' + encodeURIComponent(S.ws) + '&format=' + fmt + '&files=' + encodeURIComponent(files) + novelQ(), '_blank');
     }
     var et = $('exTxt'); if (et) et.addEventListener('click', function () { exGo('txt'); });
     var ed2 = $('exDocx'); if (ed2) ed2.addEventListener('click', function () { exGo('docx'); });
