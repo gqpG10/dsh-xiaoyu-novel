@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.53.0';
+var BUILD = '3.54.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -178,7 +178,7 @@ var BUILD = '3.53.0';
             // 3.44.0 四项线词 / 卷纲
             fl: null, vol: null,
             // 3.45.0 记忆同步
-            mem: null, memErr: '', memSyncResult: '', memView: null, ctxChain: null,
+            mem: null, memErr: '', memSyncResult: '', ctxBrief: null, idxBriefMsg: '',
             // 3.46.0 预检结果 / 分组折叠状态（默认展开结构组，质量组也展开）
             preflight: null, groupQuality: true, groupStruct: true,
             // 3.46.0 跨章检测
@@ -538,7 +538,7 @@ var BUILD = '3.53.0';
     // 3.48.2 真·书库放最前面：主人之前一直找不到"换哪本书"——旧「书架」其实是工作区列表，
     // 两本书同属一个工作区时它只显示一项，看起来就是"选不了"。
     // 3.50.0 记忆同步归概览（全书覆盖率的台账，进面板就该看见）
-    return vBookShelf() + vMemorySync() + setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
+    return vBookShelf() +  setupCard + snowCard + shelf + '<div class="card"><h3>书稿</h3>' + rows([
       ['书名', p.title], ['作者', p.author], ['题材', p.genre], ['篇幅', p.length],
       ['阶段', PHASE_LABEL[p.phase] || p.phase], ['模式', MODE_LABEL[p.mode] || p.mode], ['简介', p.description]
     ]) + '</div>' +
@@ -1251,14 +1251,14 @@ var BUILD = '3.53.0';
     var sel = '<div class="card"><h3>本章上下文</h3><div class="btnrow"><select id="ctxFile" class="sm">' +
       files.map(function (f) { return '<option value="' + esc(f) + '"' + (f === S.ctxFile ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join('') +
       '</select><span class="muted">写这一章前先看这里：只列「不知道就会写错」的信息</span></div></div>';
-    // 3.53.0 自动读取：进本章 tab 就先载入这一章的前情提要（memory/chain-<章>.yml）
-    var chainCard = S.ctxChain
-      ? '<div class="card" style="border-left:3px solid #3fbf7f"><h3>前情提要 <span class="badge">自动读取</span></h3>' +
-        '<pre style="max-height:36vh;overflow:auto;background:#151b23;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;margin:0">' +
-        esc(S.ctxChain.text || '') + '</pre></div>'
-      : '';
     var d = S.ctxPack;
-    if (!d) return chainCard + sel + '<div class="card"><div class="muted">加载中…</div></div>';
+    // 3.54.0 前情提要改由「索引」提供（index.yml 的章概要，质量比自己抽的骨架好）
+    var briefCard = S.ctxBrief && S.ctxBrief.text
+      ? '<div class="card" style="border-left:3px solid #3fbf7f"><h3>前情提要 <span class="badge">读自索引</span></h3>' +
+        '<pre style="max-height:36vh;overflow:auto;background:#151b23;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;margin:0">' +
+        esc(S.ctxBrief.text) + '</pre></div>'
+      : '';
+    if (!d) return briefCard + sel + '<div class="card"><div class="muted">加载中…</div></div>';
     if (S.ctxPack === d && d.chapter) {
       var st0 = d.stats || {};
       var brief = '<div class="card" style="border-left:3px solid #4b8bf5"><h3>上下文卡 <span class="badge">写这一章只看这张</span></h3>' +
@@ -1268,7 +1268,7 @@ var BUILD = '3.53.0';
         '<div class="row"><span class="k">前情</span><span class="v">' + (d.prevMemory ? esc(String(d.prevMemory.text || '').split('\n')[0]) : '（无）') + '</span></div>' +
         '<div class="muted" style="margin-top:4px">' + (st0.castN || 0) + ' 角色 · ' + (st0.dueN || 0) + ' 到期伏笔 · ' + (st0.secretN || 0) + ' 条警戒</div></div>';
     }
-    if (d.ok === false) return sel + '<div class="card"><div class="err">读取失败：' + esc(d.error || '?') + '</div></div>';
+    if (d.ok === false) return briefCard + sel + '<div class="card"><div class="err">读取失败：' + esc(d.error || '?') + '</div></div>';
     var st = d.stats || {};
     var out = '<div class="card"><h3>本章上下文 <span class="badge">' + esc(d.chapter) + '</span></h3>' +
       rows([['命中角色', (d.cast || []).join('、') || '（无）'], ['伏笔', (st.dueN || 0) + ' 到期 · ' + (st.warmN || 0) + ' 预热'], ['警戒', (st.secretN || 0) + ' 条信息差']]) + '</div>';
@@ -1291,7 +1291,7 @@ var BUILD = '3.53.0';
       }).join('') + '<div class="muted" style="margin-top:4px">这些线读者视角未知：正文、对话、心理活动都不得提前揭示。</div></div>';
     }
     out += vBlueprint(d.chapter, S.blueprint && S.blueprint.chapter === d.chapter ? S.blueprint : null);
-    return sel + out;
+    return briefCard + sel + out;
   }
   /* 3.24.0 合规体检（sumeru 三级敏感词范式）：门禁页发布前最后一道闸。 */
   function ensureCompliance() {
@@ -1404,37 +1404,7 @@ var BUILD = '3.53.0';
       '<button type="button" id="pfRunAll" class="sm">预检全书</button></div>'
     return head + '</div>'
   }
-  /* 3.45.0 记忆自动同步：覆盖率 + 批量回填 + 段压缩。 */
-  function vMemorySync() {
-    var m = S.mem || {}
-    var head = '<div class="card"><h3>记忆同步 <span class="badge">前情提要</span>' +
-      (m.ratioPct != null ? '<span class="pill ' + (m.ratio >= 0.9 ? 'ok' : 'bad') + '">' + m.ratioPct + '%</span>' : '') + '</h3>'
-    if (S.memErr) head += '<div class="err">读取失败：' + esc(S.memErr) + '</div>'
-    head += '<div class="muted" style="margin-bottom:6px">memory/&lt;章&gt;.yml 是 AI 写下一章时的前情提要。' +
-      '缺了就等于让模型自己回忆三章前发生了什么——这是「越写越吃设定」最直接的原因。' +
-      '这里可以一次性回填（纯本地摘要，不调模型），发布成功时也会自动补。</div>'
-    if (m.total != null) {
-      head += '<div style="font-size:13px;margin-bottom:6px">' + esc(m.summary || '') + '</div>'
-      if (m.missingList && m.missingList.length) {
-        head += '<div class="muted" style="font-size:12px;max-height:18vh;overflow-y:auto">缺记忆：' + esc(m.missingList.slice(0, 20).join('、')) +
-          (m.missing > 20 ? ' …共 ' + m.missing + ' 章' : '') + '</div>'
-      }
-    }
-    if (S.memSyncResult) head += '<div class="ok" style="font-size:12px;margin-top:6px">' + esc(S.memSyncResult) + '</div>'
-    head += '<div class="btnrow" style="margin-top:6px">' +
-      '<button type="button" id="memRefresh" class="sm">刷新覆盖率</button>' +
-      '<button type="button" id="memSync" class="sm pri">批量回填缺失记忆</button>' +
-      '<button type="button" id="memCompress" class="sm">压缩一段</button>' +
-      // 3.53.0 记忆内容直接看得到（原来只有生成没有查看）
-      '<button type="button" id="memViewCur" class="sm">看当前章记忆</button>' +
-      '<button type="button" id="memViewChain" class="sm">看当前章前情链</button></div>' +
-      (S.memView ? '<div style="margin-top:8px"><div class="muted" style="font-size:11.5px">' + esc(S.memView.title || '') + '</div>' +
-        '<pre style="max-height:40vh;overflow:auto;background:#151b23;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;margin:6px 0 0">' +
-        esc(S.memView.text || '') + '</pre></div>' : '')
-    return head + '</div>'
-  }
-  /* 3.48.0 书库：一个工作区下可以有多本书（novel / novel2），这里扫描并切换。 */
-  function vBookShelf() {
+    function vBookShelf() {
     var s = S.shelf || {}
     var books = s.books || []
     var head = '<div class="card"><h3>书库 <span class="badge">' + (books.length ? books.length + ' 本' : '未扫描') + '</span></h3>'
@@ -1707,19 +1677,6 @@ var BUILD = '3.53.0';
         S.preflight = d || {}; render(); note((d && d.summary) || '完成')
       }).catch(function (e) { note('预检失败：' + ((e && e.message) || e)) })
     })
-    // 3.53.0 查看记忆：当前章记忆 / 当前章前情链
-    function showMem(kind) {
-      var cur = String(S.reader && S.reader.file || S.cur || '').replace(/\.md$/i, '')
-      if (!cur) { note('先在章节列表点开一章'); return }
-      get('memory-read', { path: S.ws || '', chapter: cur, kind: kind }).then(function (d) {
-        if (d && d.ok) { S.memView = { title: d.rel, text: d.text }; render() }
-        else { S.memView = { title: '读取失败', text: (d && d.error) || '未知' }; render() }
-      }).catch(function (e) { S.memView = { title: '读取失败', text: String((e && e.message) || e) }; render() })
-    }
-    var mvc = $('memViewCur')
-    if (mvc) mvc.addEventListener('click', function () { showMem('chapter') })
-    var mvl = $('memViewChain')
-    if (mvl) mvl.addEventListener('click', function () { showMem('chain') })
     var mr = $('memRefresh')
     if (mr) mr.addEventListener('click', function () {
       get('memory-health', { path: S.ws || '' }).then(function (d) {
@@ -2979,7 +2936,15 @@ var BUILD = '3.53.0';
   }
   function vIndex(d) {
     var clues = d.clues || [], mem = d.memories || [];
-    return '<div class="card"><h3>线索 ' + clues.length + '</h3>' +
+    // 3.54.0 索引就是前情的唯一来源：一键生成「分章分块的阅读版」，人和 AI 都好读
+    var briefCard = '<div class="card" style="border-left:3px solid #3fbf7f"><h3>章概要 · 阅读版 <span class="badge">前情就靠它</span></h3>' +
+      '<div class="muted" style="margin-bottom:6px">把 index.yml 的章概要转成「每章一块」的 markdown，' +
+      '写到 <b>index-brief.md</b>。写手/AI 写新章时读这个，比啃 YAML 顺得多。</div>' +
+      '<div class="btnrow"><button type="button" id="idxBriefWrite" class="sm pri">生成全书阅读版</button></div>' +
+      (S.idxBriefMsg ? '<div class="muted" style="margin-top:6px">' + esc(S.idxBriefMsg) + '</div>' : '') +
+      '</div>';
+    return briefCard +
+      '<div class="card"><h3>线索 ' + clues.length + '</h3>' +
       (clues.length ? clues.slice(0, 300).map(function (c) {
         return '<div class="row"><span class="k">' + esc(c.kind || '') + '</span><span class="v">' +
           esc(c.content || '') + (c.related_chapter ? '<span class="pill">' + esc(c.related_chapter) + '</span>' : '') + '</span></div>';
@@ -4069,15 +4034,15 @@ var BUILD = '3.53.0';
     if (S.tab === 'audit') { bindAudit(); bindTodo(); }
     if (S.tab === 'todo') bindTodo();
     if (S.tab === 'context') {
-      // 3.53.0 自动读取前情链：进入本章 tab 立即加载当前章的前情提要
+      // 3.54.0 记忆体系已删，前情改读「索引」：进本章 tab 自动加载最近几章的章概要
       (function () {
         var f = S.ctxFile || chapterFileDefault()
         var stem = String(f || '').replace(/\.md$/i, '')
-        if (!stem || (S.ctxChain && S.ctxChain.chapter === stem)) return
-        get('memory-read', { path: S.ws || '', chapter: stem, kind: 'chain' }).then(function (cd) {
-          S.ctxChain = cd && cd.ok ? { chapter: stem, text: cd.text } : null
+        if (!stem || (S.ctxBrief && S.ctxBrief.chapter === stem)) return
+        get('index-brief', { path: S.ws || '', chapter: stem, before: 3 }).then(function (bd) {
+          S.ctxBrief = bd && bd.ok ? { chapter: stem, text: bd.text, items: bd.items || [] } : null
           if (S.tab === 'context') render()
-        }).catch(function () { S.ctxChain = null })
+        }).catch(function () { S.ctxBrief = null })
       })();
       var cf = S.ctxFile || (S.ctxFile = chapterFileDefault()); ensureCtxPack(cf); ensureBlueprint(cf); bindContext(); bindBlueprint(cf); }
     if (S.tab === 'world') bindBibleTouch();
@@ -4085,6 +4050,17 @@ var BUILD = '3.53.0';
     if (S.tab === 'timeline') bindTimeline();
     if (S.tab === 'style') bindStyle();
     if (S.tab === 'project') bindProj();
+    if (S.tab === 'index') {
+      // 3.54.0 生成全书阅读版索引
+      var ibw = $('idxBriefWrite')
+      if (ibw) ibw.addEventListener('click', function () {
+        S.idxBriefMsg = '生成中…'; render()
+        postJson('index-brief-write', { path: S.ws }).then(function (r) {
+          S.idxBriefMsg = r && r.ok ? ('已生成 ' + r.rel + '（' + r.chapters + ' 章）') : ('失败：' + ((r && r.error) || '未知'))
+          render()
+        }).catch(function (e) { S.idxBriefMsg = '失败：' + String((e && e.message) || e); render() })
+      })
+    }
     if (S.tab === 'tools') bindTools();
     if (S.tab === 'world') bindWorldExtra();
     if (S.tab === 'history') bindHistory();

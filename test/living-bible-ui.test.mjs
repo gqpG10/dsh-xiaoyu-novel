@@ -25,10 +25,12 @@ test('活设定集 UI：设定页有活设定卡 + 标记按钮 + 已引用/未�
   assert.match(panel, /S\.tab === 'world'\).* bindBibleTouch/, 'world tab 渲染后必须绑按钮')
 })
 
-test('章后记忆：chapter-memory 路由 + 前情字段', () => {
-  assert.match(index, /route === 'chapter-memory' && req\.method === 'POST'/)
+test('3.54.0 记忆体系已移除，前情改走索引', () => {
+  assert.ok(!/route === 'chapter-memory'/.test(index), 'chapter-memory 路由应已删除')
+  assert.ok(!/route === 'memory-read'/.test(index), 'memory-read 路由应已删除')
+  assert.match(index, /route === 'index-brief'/, '改由 index-brief 提供前情')
   const ctx = readFileSync(path.join(root, 'lib/chapter-context.mjs'), 'utf8')
-  assert.match(ctx, /prevMemory/)
+  assert.ok(!/memory/.test(ctx), 'chapter-context 不该再读 memory/ 目录')
 })
 
 test('连续性路由：consistency GET 合流两扫描', () => {

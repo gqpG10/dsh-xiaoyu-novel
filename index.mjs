@@ -122,6 +122,7 @@ import { applyLedgerClean, describePlan, planLedgerClean, undoLedgerClean } from
 // 0.15.3 本章出场名单：关系图按当前章节过滤节点。
 import { chapterCast, castMatrix } from './lib/cast-core.mjs'
 import { chapterContext } from './lib/chapter-context.mjs'
+import { indexBrief, writeFullBrief } from './lib/index-brief.mjs'
 import { readBlueprint, listBlueprints, serializeBlueprint, blueprintStats, qualityOfBlueprint } from './lib/chapter-blueprint.mjs'
 import { qualityTrend } from './lib/quality-trend.mjs'
 import { buildCoverPrompt } from './lib/cover-prompt.mjs'
@@ -136,8 +137,7 @@ import { checkFourLines, payoffDensity, loadFourLines, summarizePacing } from '.
 import { loadBlacklist, scanBlacklist, gateBlacklist } from './lib/blacklist.mjs'
 import { suggestFourLines, writeFourLines, readFourLinesRaw } from './lib/four-lines-gen.mjs'
 import { auditVolumes, summarizeVolumes } from './lib/volume-lines.mjs'
-import { memoryHealth, syncMemories, compressRange, summarizeMemory } from './lib/memory-sync.mjs'
-import { afterChapterDone, buildChain, readChapterMemory, listSegments } from './lib/memory-chain.mjs'
+// 3.54.0 记忆体系整体移除：和 index.yml 的章概要重复，功能并入索引
 import { preflightChapters, summarizePreflight } from './lib/preflight.mjs'
 import { detectRepeatedImagery, rhythmCurve, detectCharacterAbsence, summarizeCross } from './lib/cross-chapter.mjs'
 import { classifyCharacters, filterForGraph, summarizeCast } from './lib/cast-filter.mjs'
@@ -2104,22 +2104,7 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
-        if (route === 'chapter-memory' && req.method === 'POST') {
-          // 3.23.0 章后记忆：定稿时生成摘要落盘 memory/<章>.yml。
-          const body = await readBody(req, res)
-          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
-          const stem = String(body.chapter || '').replace(/\.md$/i, '')
-          if (!/^[A-Za-z0-9_-]+$/.test(stem)) { json(res, 400, { ok: false, error: '章名非法' }); return }
-          const raw = readFileSync(path.join(novelDir, 'chapters', stem + '.md'), 'utf8')
-          const s = summarizeChapter(raw)
-          if (!s.ok) { json(res, 400, s); return }
-          const dir = path.join(novelDir, 'memory')
-          mkdirSync(dir, { recursive: true })
-          writeFileSync(path.join(dir, stem + '.yml'), s.summary, 'utf8')
-          json(res, 200, { ok: true, chapter: stem, rel: 'memory/' + stem + '.yml', summary: s.summary })
-          return
-        }
-
+        
         if (route === 'consistency' && req.method === 'GET') {
           // 3.23.0 连续性体检：角色属性矛盾 + 时间倒流，合流进体检页。
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2229,54 +2214,10 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
-        if (route === 'memory-read' && req.method === 'GET') {
-          // 3.53.0 读记忆：单章记忆 / 前情链 / 段记忆，面板直接看得到
-          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
-          const kind = url.searchParams.get('kind') || 'chapter'
-          const stem = String(url.searchParams.get('chapter') || '').replace(/\.md$/i, '')
-          if (kind === 'chain') {
-            const p = path.join(novelDir, 'memory', 'chain-' + stem + '.yml')
-            if (!existsSync(p)) { json(res, 404, { ok: false, error: '没有这一章的前情链：' + stem }); return }
-            json(res, 200, { ok: true, kind: 'chain', chapter: stem, rel: 'memory/chain-' + stem + '.yml', text: readFileSync(p, 'utf8') })
-            return
-          }
-          if (kind === 'segments') {
-            json(res, 200, { ok: true, kind: 'segments', items: listSegments(novelDir) })
-            return
-          }
-          const m = readChapterMemory(novelDir, stem)
-          if (m === null) { json(res, 404, { ok: false, error: '这一章还没有记忆：' + stem }); return }
-          json(res, 200, { ok: true, kind: 'chapter', chapter: stem, rel: 'memory/' + stem + '.yml', text: m })
-          return
-        }
-
-        if (route === 'memory-health' && req.method === 'GET') {
-          // 3.45.0 记忆健康度
-          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
-          const h = memoryHealth(novelDir)
-          json(res, 200, { ...h, summary: summarizeMemory(h) })
-          return
-        }
-
-        if (route === 'memory-sync' && req.method === 'POST') {
-          // 3.45.0 批量回填记忆（纯本地摘要）
-          const body = await readBody(req, res)
-          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
-          const out = syncMemories(novelDir, { limit: body.limit, force: body.force === true })
-          invalidateAllCaches()
-          json(res, 200, { ...out, summary: summarizeMemory(out) })
-          return
-        }
-
-        if (route === 'memory-compress' && req.method === 'POST') {
-          // 3.45.0 把连续区间压成段记忆
-          const body = await readBody(req, res)
-          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
-          const out = compressRange(novelDir, { from: body.from, to: body.to, name: body.name })
-          json(res, out.ok ? 200 : 400, out)
-          return
-        }
-
+        
+        
+        
+        
         if (route === 'four-lines' && req.method === 'GET') {
           // 3.44.0 四线信号词：现有原文 + 自动挖的候选
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
@@ -2870,6 +2811,23 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'index-brief' && req.method === 'GET') {
+          // 3.54.0 前情提要读自索引（记忆体系已移除）：按章分块的阅读形态
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const stem = url.searchParams.get('chapter') || ''
+          const before = Number(url.searchParams.get('before')) || 3
+          json(res, 200, indexBrief(novelDir, stem, before))
+          return
+        }
+
+        if (route === 'index-brief-write' && req.method === 'POST') {
+          // 3.54.0 生成「全书阅读版索引」→ index-brief.md（给人通读，也给 AI 检索）
+          const body = await readBody(req, res)
+          const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
+          json(res, 200, writeFullBrief(novelDir))
+          return
+        }
+
         if (route === 'chapter-context' && req.method === 'GET') {
           // 3.21.0 每章智能上下文：只给写手「不知道就会写错」的信息（命中角色/
           // 到期伏笔/信息差警戒），30s TTL 缓存同 cast-matrix 策略。
@@ -3428,15 +3386,7 @@ function styleRegisterGroup(register) {
           const body = await readBody(req, res)
           const novelDir = resolveNovelRoot(body.path, ctx.workspaceRegistry)
           const stRes = mutateChapterStatus(novelDir, body.file, body.status)
-          // 3.51.0 章节完成即同步记忆 + 重建下一章前情链（原来看状态改 accepted 是"完成"的信号）
-          let memSync = null
-          try {
-            if (String(body.status || '').toLowerCase() === 'accepted' && stRes && stRes.ok !== false) {
-              const stem = String(body.file || '').replace(/\.md$/i, '')
-              memSync = afterChapterDone(novelDir, stem, { summarizeChapter })
-            }
-          } catch (e) { memSync = { ok: false, error: String((e && e.message) || e) } }
-          json(res, 200, { ...(stRes || {}), memory: memSync })
+          json(res, 200, stRes || {})
           return
         }
 
@@ -3511,17 +3461,7 @@ function styleRegisterGroup(register) {
             } catch { /* 章号读不到就只按 stem 匹配 */ }
             ledger = chapterLedgerHint(novelDir, safe, num)
           } catch { /* 提示失败静默 */ }
-          // 3.51.0 保存即同步记忆 + 前情链：保存正文就是「这一章写完了」的强信号。
-          // 记忆只在缺失时生成（已有则不动，避免把人工修正冲掉）；链每次都重建。
-          let memSync = null
-          try {
-            const stem0 = path.basename(String(body.file ?? '')).replace(/\.md$/i, '')
-            if (/^[A-Za-z0-9_-]+$/.test(stem0)) {
-              memSync = afterChapterDone(novelDir, stem0, { summarizeChapter })
-              invalidateAllCaches()
-            }
-          } catch (e) { memSync = { ok: false, error: String((e && e.message) || e) } }
-          json(res, 200, { ...(ledger ? { ...saved, ledger } : saved), memory: memSync })
+          json(res, 200, ledger ? { ...saved, ledger } : saved)
           return
         }
 

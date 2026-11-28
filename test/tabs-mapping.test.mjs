@@ -19,8 +19,9 @@ function body(fnName) {
   return m ? panel.slice(a, a + 1 + m.index) : rest
 }
 
-test('记忆同步卡在概览页', () => {
-  assert.ok(body('vOverview(d)').includes('vMemorySync()'), '概览页必须包含 vMemorySync')
+test('记忆同步卡已移除（3.54.0 并入索引）', () => {
+  assert.ok(!panel.includes('vMemorySync'), '记忆同步卡应已删除')
+  assert.ok(body('vIndex').includes('idxBriefWrite'), '索引页要有「生成全书阅读版」按钮')
 })
 
 test('四线词&卷纲、节奏在项目页', () => {
