@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.54.1';
+var BUILD = '3.54.2';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -178,7 +178,7 @@ var BUILD = '3.54.1';
             // 3.44.0 四项线词 / 卷纲
             fl: null, vol: null,
             // 3.45.0 记忆同步
-            mem: null, memErr: '', memSyncResult: '', ctxBrief: null, idxBriefMsg: '',
+            mem: null, memErr: '', memSyncResult: '', ctxBrief: null, idxBriefMsg: '', ctxAsked: {},
             // 3.46.0 预检结果 / 分组折叠状态（默认展开结构组，质量组也展开）
             preflight: null, groupQuality: true, groupStruct: true,
             // 3.46.0 跨章检测
@@ -1235,12 +1235,34 @@ var BUILD = '3.54.1';
 
   /* 3.21.0 本章上下文：写手动笔前的一页「不知道就会写错」信息包。
      数据来自 /api/xiaoyu-novel/chapter-context（命中角色/到期伏笔/信息差警戒）。 */
+  // 3.54.2 三处 ensure* 原来都靠「S.xxx.chapter === file」判断能否跳过，
+  // 但后端返回的 chapter 字段和前端传的 file 不一定同形（v01-c012 vs .md），
+  // 于是每次 render 都重发 → 每次都 render → 无限循环，界面一直跳。
+  // 统一改成「按 file 键记已请求」，成功失败都记，绝不重发。
+  // 3.54.2 前情提要卡片体（单独抽出来，方便局部替换，不再整页重绘）
+  function briefBody() {
+    var b = S.ctxBrief
+    if (!b) return '<div class="note">正在读取前情提要…</div>'
+    if (!b.text) return '<div class="card"><div class="muted">' + esc(b.err || '索引里还没有可用的章概要') + '</div></div>'
+    return '<div class="card" style="border-left:3px solid #3fbf7f"><h3>前情提要 <span class="badge">读自索引</span></h3>' +
+      '<pre style="max-height:36vh;overflow-y:auto;overflow-x:hidden;background:#151b23;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;margin:0">' +
+      esc(b.text) + '</pre></div>'
+  }
   function ensureCtxPack(file) {
     if (!S.ws || !file) return;
-    if (S.ctxPack && S.ctxPack.chapter === file) return;
+    S.ctxAsked = S.ctxAsked || {};
+    if (S.ctxAsked['pack:' + file]) return;
+    S.ctxAsked['pack:' + file] = true;
+    // 3.54.2 回来时也整页 render 会冲掉滚动——但上下文卡结构复杂，
+    // 这里只在「首次进入、还没有任何数据」时才重绘一次（有数据就不再打断）。
     get('chapter-context', { path: S.ws, chapter: file }).then(function (d) {
-      S.ctxPack = d; if (S.tab === 'context') render();
-    }).catch(function (e) { S.ctxPack = { ok: false, chapter: file, error: String((e && e.message) || e) }; if (S.tab === 'context') render(); });
+      var first = !S.ctxPack || S.ctxPack.ok === false || !S.ctxPack.ended;
+      S.ctxPack = d;
+      if (S.tab === 'context' && first) render();
+    }).catch(function (e) {
+      S.ctxPack = { ok: false, chapter: file, error: String((e && e.message) || e) };
+      if (S.tab === 'context') render();
+    });
   }
   function chapterFileDefault() {
     var fs = (S.data && S.data.files) || (S.matrix && S.matrix.files) || [];
@@ -1253,11 +1275,7 @@ var BUILD = '3.54.1';
       '</select><span class="muted">写这一章前先看这里：只列「不知道就会写错」的信息</span></div></div>';
     var d = S.ctxPack;
     // 3.54.0 前情提要改由「索引」提供（index.yml 的章概要，质量比自己抽的骨架好）
-    var briefCard = S.ctxBrief && S.ctxBrief.text
-      ? '<div class="card" style="border-left:3px solid #3fbf7f"><h3>前情提要 <span class="badge">读自索引</span></h3>' +
-        '<pre style="max-height:36vh;overflow:auto;background:#151b23;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;margin:0">' +
-        esc(S.ctxBrief.text) + '</pre></div>'
-      : '';
+    var briefCard = '<div id="ctxBriefSlot">' + briefBody() + '</div>';
     if (!d) return briefCard + sel + '<div class="card"><div class="muted">加载中…</div></div>';
     if (S.ctxPack === d && d.chapter) {
       var st0 = d.stats || {};
@@ -2030,8 +2048,10 @@ var BUILD = '3.54.1';
   }
   function ensureBlueprint(file) {
     if (!S.ws || !file) return;
-    if (S.blueprint && S.blueprint.chapter === file) return;
-    get('blueprint', { path: S.ws, chapter: file }).then(function (d) { S.blueprint = d; if (S.tab === 'context') render(); }).catch(function () {});
+    S.ctxAsked = S.ctxAsked || {};
+    if (S.ctxAsked['bp:' + file]) return;
+    S.ctxAsked['bp:' + file] = true;
+    get('blueprint', { path: S.ws, chapter: file }).then(function (d) { var first = !S.blueprint; S.blueprint = d; if (S.tab === 'context' && first) render(); }).catch(function () {});
   }
   function bindBlueprint(file) {
     var memo = $('bpMemo');
@@ -2057,7 +2077,11 @@ var BUILD = '3.54.1';
   }
   function bindContext() {
     var sel = $('ctxFile');
-    if (sel) sel.addEventListener('change', function () { S.ctxPack = null; ensureCtxPack(sel.value); render(); });
+    if (sel) sel.addEventListener('change', function () {
+      // 换章要清掉"已请求"标记，否则新章永远不加载
+      S.ctxPack = null; S.blueprint = null; S.ctxBrief = null; S.ctxAsked = {};
+      ensureCtxPack(sel.value); ensureBlueprint(sel.value); render();
+    });
   }
 
   /* 角色出场热力：3.16.1 起优先用 cast-matrix（出场章数，秒出）；
@@ -4071,7 +4095,12 @@ var BUILD = '3.54.1';
           S.ctxBrief = bd && bd.ok
             ? { chapter: stem, text: bd.text, items: bd.items || [] }
             : { chapter: stem, text: '', items: [], err: (bd && bd.error) || '' }
-          if (S.tab === 'context') render()
+          // 3.54.2 局部更新，不整页 render：整页重绘会把滚动位置和正在划动的状态全冲掉
+          if (S.tab === 'context') {
+            var holder = $('ctxBriefSlot')
+            if (holder) holder.innerHTML = briefBody()
+            else render()
+          }
         }).catch(function () {
           S.ctxBrief = { chapter: stem, text: '', items: [], err: '读取失败' }
         })
