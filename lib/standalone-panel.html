@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.54.0';
+var BUILD = '3.54.1';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -3992,7 +3992,22 @@ var BUILD = '3.54.0';
     // 3.31.0 滚动保持：整页重建会把滚动位置重置到顶部（长章节列表里尤其难受）。
     // 渲染前记下 #view 的 scrollTop，渲完（含异步补渲）立刻还原。
     var keepScroll = 0;
-    try { var _v0 = $('view'); if (_v0) keepScroll = _v0.scrollTop || 0; } catch (e) {}
+    // 3.54.1 内层滚动保持：3.49.0 把布局改成 flex 后，除了 #view，
+    // pre/内层 div 也各自成了滚动容器（前情提要、章节列表、出席矩阵）。
+    // 整页重建时这些全归零，看起来就是"划不动、一直跳"。这里统一记统一还。
+    var keepInner = [];
+    try {
+      var vNow = $('view');
+      if (vNow) {
+        keepScroll = vNow.scrollTop || 0;
+        var nodes = vNow.querySelectorAll('pre, .cbody, div[style*="overflow"]');
+        for (var i = 0; i < nodes.length && i < 60; i++) {
+          if (nodes[i].scrollTop > 0 || nodes[i].scrollLeft > 0) {
+            keepInner.push({ ord: i, top: nodes[i].scrollTop, left: nodes[i].scrollLeft });
+          }
+        }
+      }
+    } catch (e) {}
     var restoreScroll = function () {
       try {
         var vv = $('view');
@@ -4000,6 +4015,14 @@ var BUILD = '3.54.0';
           vv.scrollTop = keepScroll;
           var sc = document.scrollingElement || document.documentElement;
           if (sc && keepScroll > 0 && vv.scrollTop === 0) sc.scrollTop = keepScroll;
+        }
+        // 内层容器按 DOM 顺序还原（结构没变时序号对得上）
+        if (vv && keepInner.length) {
+          var again = vv.querySelectorAll('pre, .cbody, div[style*="overflow"]');
+          for (var k = 0; k < keepInner.length; k++) {
+            var it = keepInner[k];
+            if (again[it.ord]) { again[it.ord].scrollTop = it.top; again[it.ord].scrollLeft = it.left; }
+          }
         }
       } catch (e) {}
     };
@@ -4038,11 +4061,20 @@ var BUILD = '3.54.0';
       (function () {
         var f = S.ctxFile || chapterFileDefault()
         var stem = String(f || '').replace(/\.md$/i, '')
-        if (!stem || (S.ctxBrief && S.ctxBrief.chapter === stem)) return
+        // 3.54.1 防死循环：① 同章已请求过就不再请求（成功失败都算）
+        // ② 请求中就跳过（原来每次 render 都重新发、每次都重建对象再 render，滚条被反复重置＝"一直跳"）
+        if (!stem) return
+        S.ctxBriefAsked = S.ctxBriefAsked || {}
+        if (S.ctxBriefAsked[stem] || (S.ctxBrief && S.ctxBrief.chapter === stem)) return
+        S.ctxBriefAsked[stem] = true
         get('index-brief', { path: S.ws || '', chapter: stem, before: 3 }).then(function (bd) {
-          S.ctxBrief = bd && bd.ok ? { chapter: stem, text: bd.text, items: bd.items || [] } : null
+          S.ctxBrief = bd && bd.ok
+            ? { chapter: stem, text: bd.text, items: bd.items || [] }
+            : { chapter: stem, text: '', items: [], err: (bd && bd.error) || '' }
           if (S.tab === 'context') render()
-        }).catch(function () { S.ctxBrief = null })
+        }).catch(function () {
+          S.ctxBrief = { chapter: stem, text: '', items: [], err: '读取失败' }
+        })
       })();
       var cf = S.ctxFile || (S.ctxFile = chapterFileDefault()); ensureCtxPack(cf); ensureBlueprint(cf); bindContext(); bindBlueprint(cf); }
     if (S.tab === 'world') bindBibleTouch();
