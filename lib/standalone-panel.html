@@ -134,7 +134,7 @@
 <div id="note" class="note"></div>
 
 <script>
-var BUILD = '3.54.2';
+var BUILD = '3.55.0';
 (function () {
   'use strict';
   var API = '/api/xiaoyu-novel/';
@@ -178,7 +178,7 @@ var BUILD = '3.54.2';
             // 3.44.0 四项线词 / 卷纲
             fl: null, vol: null,
             // 3.45.0 记忆同步
-            mem: null, memErr: '', memSyncResult: '', ctxBrief: null, idxBriefMsg: '', ctxAsked: {},
+            mem: null, memErr: '', memSyncResult: '', ctxBrief: null, idxBriefMsg: '', ctxAsked: {}, fcMsg: '', sixBeats: null,
             // 3.46.0 预检结果 / 分组折叠状态（默认展开结构组，质量组也展开）
             preflight: null, groupQuality: true, groupStruct: true,
             // 3.46.0 跨章检测
@@ -677,11 +677,31 @@ var BUILD = '3.54.2';
       '</svg><div class="muted">蓝=人味 · 绿=检测器 · 共 ' + n + ' 章（左→右按章节序）</div>';
   }
 
+  /* 3.55.0 六节拍检查卡：后端 six-beats 一直没人调，章纲六拍齐不齐本该在这看 */
+  function vSixBeats() {
+    var d = S.sixBeats
+    var body
+    if (!d) body = '<div class="muted">点「检查六节拍」扫一遍 blueprints/ 里每份章纲。</div>'
+    else if (d.ok === false) body = '<div class="err">' + esc(d.error || '失败') + '</div>'
+    else {
+      var rows = d.rows || []
+      var bad = rows.filter(function (r) { return !r.ok })
+      body = '<div class="muted" style="margin-bottom:6px">共 ' + rows.length + ' 份章纲，缺拍 ' + bad.length + ' 份。</div>' +
+        (bad.length
+          ? bad.slice(0, 20).map(function (r) {
+              return '<div class="row"><span class="k">' + esc(r.file || '') + '</span><span class="v">缺：' + esc((r.missing || []).join('、') || '?') + '</span></div>'
+            }).join('')
+          : '<div class="muted ok">六拍齐全 ✓</div>')
+    }
+    return '<div class="card"><h3>六节拍门禁 <span class="badge">章纲</span></h3>' +
+      '<div class="btnrow"><button type="button" id="sbRun" class="sm pri">检查六节拍</button></div>' + body + '</div>'
+  }
   function vGate() {
     ensureTrend();
     ensureCompliance();
-    if (S.gatesErr) return '<div class="err">门禁读取失败：' + esc(S.gatesErr) + '</div>';
-    if (!S.gates) return '<div class="note">正在计算门禁分…（全本逐章分析，稍等几秒）</div>';
+    var sixCard = vSixBeats();
+    if (S.gatesErr) return sixCard + '<div class="err">门禁读取失败：' + esc(S.gatesErr) + '</div>';
+    if (!S.gates) return sixCard + '<div class="note">正在计算门禁分…（全本逐章分析，稍等几秒）</div>';
     var names = Object.keys(S.gates.gates || {}).sort(function (a, b) {
       var ga = S.gates.gates[a], gb = S.gates.gates[b];
       return (ga && ga.ok ? ga.human : -1) - (gb && gb.ok ? gb.human : -1);
@@ -774,6 +794,14 @@ var BUILD = '3.54.2';
     });
   }
   function bindGate() {
+    // 3.55.0 六节拍检查
+    var sb = $('sbRun')
+    if (sb) sb.addEventListener('click', function () {
+      note('检查章纲六节拍…')
+      get('six-beats', { path: S.ws || '' }).then(function (d) {
+        S.sixBeats = d || {}; render(); note(d && d.summary ? d.summary : '检查完成')
+      }).catch(function (e) { note('六节拍检查失败：' + ((e && e.message) || e)) })
+    })
     /* 3.17.0 质检矩阵勾选：不重渲染（重渲染会丢表格），只落本地。 */
     Array.prototype.forEach.call(document.querySelectorAll('.qcChk'), function (ck) {
       ck.addEventListener('change', function () {
@@ -1673,7 +1701,7 @@ var BUILD = '3.54.2';
       note('全面检查中…章节多会慢一点')
       var jobs = [
         postJson('preflight', { path: S.ws || '' }).then(function (d) { S.preflight = d || {} }).catch(function () {}),
-        get('memory-health', { path: S.ws || '' }).then(function (d) { S.mem = d || {} }).catch(function () {}),
+        // 3.55.0 记忆健康度接口已删除，这里不再预取（原先是 Promise.all 的一项）
         get('pacing', { path: S.ws || '' }).then(function (d) { S.pacing = d || {} }).catch(function () {}),
         get('foreshadow-audit', { path: S.ws || '' }).then(function (d) { S.fs = d || {} }).catch(function () {}),
       ]
@@ -1695,31 +1723,8 @@ var BUILD = '3.54.2';
         S.preflight = d || {}; render(); note((d && d.summary) || '完成')
       }).catch(function (e) { note('预检失败：' + ((e && e.message) || e)) })
     })
-    var mr = $('memRefresh')
-    if (mr) mr.addEventListener('click', function () {
-      get('memory-health', { path: S.ws || '' }).then(function (d) {
-        S.mem = d || {}; render(); note((d && d.summary) || '')
-      }).catch(function (e) { note('读取失败：' + ((e && e.message) || e)) })
-    })
-    var ms = $('memSync')
-    if (ms) ms.addEventListener('click', function () {
-      note('回填中…')
-      postJson('memory-sync', { path: S.ws || '' }).then(function (d) {
-        S.memSyncResult = (d && d.summary) || ''
-        return get('memory-health', { path: S.ws || '' })
-      }).then(function (h) { S.mem = h || {}; render(); note('回填完成') })
-        .catch(function (e) { note('回填失败：' + ((e && e.message) || e)) })
-    })
-    var mc = $('memCompress')
-    if (mc) mc.addEventListener('click', function () {
-      var from = window.prompt('起始章（如 v01-c001）', '')
-      if (!from) return
-      var to = window.prompt('结束章（如 v01-c005）', '')
-      if (!to) return
-      postJson('memory-compress', { path: S.ws || '', from: from, to: to }).then(function (d) {
-        note(d && d.ok ? ('已压缩：' + d.rel) : ((d && d.error) || '失败'))
-      }).catch(function (e) { note('压缩失败：' + ((e && e.message) || e)) })
-    })
+    // 3.55.0 记忆体系已删（3.54.0），这三个按钮的绑定一并清掉，
+    // 否则点了会打 404（memory-health / memory-sync / memory-compress 后端都没了）。
     var fg = $('flGen')
     if (fg) fg.addEventListener('click', function () {
       var force = false
@@ -2054,12 +2059,7 @@ var BUILD = '3.54.2';
     get('blueprint', { path: S.ws, chapter: file }).then(function (d) { var first = !S.blueprint; S.blueprint = d; if (S.tab === 'context' && first) render(); }).catch(function () {});
   }
   function bindBlueprint(file) {
-    var memo = $('bpMemo');
-    if (memo) memo.addEventListener('click', function () {
-      postJson('chapter-memory', { path: S.ws, chapter: file })
-        .then(function (r) { note('章记忆已存 ' + (r.rel || '') + '：下章「前情」自动携带'); })
-        .catch(function (e) { note('生成失败：' + ((e && e.message) || e)); });
-    });
+    // 3.55.0 章记忆按钮已随记忆体系删除（后端 chapter-memory 不存在了）
     var btn = $('bpSave');
     if (!btn) return;
     btn.addEventListener('click', function () {
@@ -3273,7 +3273,7 @@ var BUILD = '3.54.2';
   function vTools() {
     ensureTools();
     var q = '?path=' + encodeURIComponent(S.ws);
-    var out = vPortable() + '<div class="card"><h3>索引</h3><div class="btnrow"><button type="button" id="btnReindex" class="sm">重建索引板</button></div></div>';
+    var out = vPortable() + vExport() + vFileCreate() + '<div class="card"><h3>索引</h3><div class="btnrow"><button type="button" id="btnReindex" class="sm">重建索引板</button></div></div>';
     out += '<div class="card"><h3>回收站' + (S.trash ? ' <span class="badge">' + ((S.trash.items || []).length) + ' 项</span>' : '') + '</h3>';
     if (S.trashPrev) out += '<div class="card"><h3>回收站预览 <span class="badge">' + esc(S.trashPrev.rel || S.trashPrev.id) + '</span><button type="button" id="tpClose" class="sm" style="margin-left:auto">关闭</button></h3>' +
       '<div class="muted" style="white-space:pre-wrap;max-height:40vh;overflow-y:auto">' + esc(S.trashPrev.text || '（空）') + '</div></div>';
@@ -3387,12 +3387,99 @@ var BUILD = '3.54.2';
       copy(txt).then(function (ok) { note(ok ? '选题指令已复制' : '复制失败'); });
     });
   }
+  // 3.55.0 新建文件模板（数组 join，避免反引号里写 \n 被真转义）
+  function CHAR_TPL(name) {
+    return ['# ' + name, '', '---', 'name: ' + name, 'tier: secondary', '---', '',
+      '## 身份', '', '## 说话习惯', '', '## 与主角关系', ''].join('\n')
+  }
+  function WORLD_TPL(name) {
+    return ['# ' + name, '', '## 是什么', '', '## 规则/限制', '', '## 在剧情里的作用', ''].join('\n')
+  }
+  function OUTLINE_TPL(stem) {
+    return ['# ' + stem + ' 章纲', '', '## 这一章要发生什么', '', '## 六节拍',
+      '1. 起', '2. 承', '3. 转', '4. 冲突', '5. 高潮', '6. 收', ''].join('\n')
+  }
+  /* 3.55.0 导出卡：整书导出 + 勾选导出（后端 export-book / export-selection 一直没人用） */
+  function vExport() {
+    var picked = 0
+    try { picked = Object.keys(S.selSet || {}).filter(function (k) { return S.selSet[k] }).length } catch (e) {}
+    return '<div class="card"><h3>导出书稿 <span class="badge">TXT / Word / EPUB</span></h3>' +
+      '<div class="muted" style="margin-bottom:6px">整本导出会按卷分章排版，含书名与作者。' +
+      (picked ? ('已勾选 <b>' + picked + '</b> 章，可直接导出所选。') : '没勾选章就导整本。') + '</div>' +
+      '<div class="btnrow">' +
+        '<button type="button" id="expTxt" class="sm pri">整本 TXT</button>' +
+        '<button type="button" id="expDocx" class="sm">整本 Word</button>' +
+        '<button type="button" id="expEpub" class="sm">整本 EPUB</button>' +
+        (picked ? '<button type="button" id="expSel" class="sm">导出所选 ' + picked + ' 章</button>' : '') +
+      '</div></div>'
+  }
+  /* 3.55.0 新建文件：角色卡 / 设定 / 章纲，走 file-create（不覆盖已存在） */
+  function vFileCreate() {
+    return '<div class="card"><h3>新建文件</h3>' +
+      '<div class="muted" style="margin-bottom:6px">建到当前书的对应目录，已存在会拒绝（绝不覆盖）。</div>' +
+      '<div class="btnrow">' +
+        '<button type="button" id="fcChar" class="sm">新角色卡</button>' +
+        '<button type="button" id="fcWorld" class="sm">新设定</button>' +
+        '<button type="button" id="fcOutline" class="sm">新章纲</button>' +
+      '</div>' +
+      (S.fcMsg ? '<div class="muted" style="margin-top:6px">' + esc(S.fcMsg) + '</div>' : '') +
+      '</div>'
+  }
   function bindTools() {
+    // 3.55.0 导出：直接下载（后端现拼现发）
+    function downloadExport(kind) {
+      var url = API + 'export-book?path=' + encodeURIComponent(S.ws || '')
+      var fmt = 'txt'
+      if (kind === 'docx') fmt = 'docx'
+      else if (kind === 'epub') fmt = 'epub'
+      else if (kind === 'sel') {
+        var files = Object.keys(S.selSet || {}).filter(function (k) { return S.selSet[k] }).join(',')
+        url = API + 'export-selection?path=' + encodeURIComponent(S.ws || '') + '&format=txt&files=' + encodeURIComponent(files)
+        fmt = ''
+      }
+      if (fmt) url += '&format=' + fmt
+      var a = document.createElement('a')
+      a.href = url; a.download = ''
+      document.body.appendChild(a); a.click(); a.remove()
+      note('正在导出…')
+    }
+    var et = $('expTxt'); if (et) et.addEventListener('click', function () { downloadExport('txt') })
+    var ed = $('expDocx'); if (ed) ed.addEventListener('click', function () { downloadExport('docx') })
+    var ee = $('expEpub'); if (ee) ee.addEventListener('click', function () { downloadExport('epub') })
+    var es = $('expSel'); if (es) es.addEventListener('click', function () { downloadExport('sel') })
+    // 3.55.0 新建文件
+    function mkFile(rel, tpl) {
+      S.fcMsg = '创建中…'; render()
+      postJson('file-create', { path: S.ws || '', rel: rel, text: tpl }).then(function (r) {
+        S.fcMsg = r && r.ok !== false ? ('已建 ' + (r.rel || rel)) : ('失败：' + ((r && r.error) || '未知'))
+        render()
+      }).catch(function (e) { S.fcMsg = '失败：' + ((e && e.message) || e); render() })
+    }
+    var fc1 = $('fcChar')
+    if (fc1) fc1.addEventListener('click', function () {
+      var name = window.prompt('新角色名（用作文件名）', '')
+      if (!name) return
+      mkFile('characters/' + name + '.md', CHAR_TPL(name))
+    })
+    var fc2 = $('fcWorld')
+    if (fc2) fc2.addEventListener('click', function () {
+      var name = window.prompt('新设定名（用作文件名）', '')
+      if (!name) return
+      mkFile('world/' + name + '.md', WORLD_TPL(name))
+    })
+    var fc3 = $('fcOutline')
+    if (fc3) fc3.addEventListener('click', function () {
+      var stem = window.prompt('章纲文件名（如 v01-c013）', '')
+      if (!stem) return
+      mkFile('outlines/' + stem + '.md', OUTLINE_TPL(stem))
+    })
     // 3.52.0 DSH 环境搬家：直接触发下载（后端现打包、现下发）
     function downloadPortable(withSecrets) {
       if (withSecrets && !window.confirm('包含渠道 key 的包等于把模型账号一起带走。\n\n确定要打包吗？')) return
       var a = document.createElement('a')
-      a.href = API + 'portable-export?secrets=' + (withSecrets ? '1' : '0')
+      // 3.55.0 补 path（后端需要工作区根目录才能定位 DSH home）
+      a.href = API + 'portable-export?secrets=' + (withSecrets ? '1' : '0') +
+        '&path=' + encodeURIComponent(S.ws || '')
       a.download = ''
       document.body.appendChild(a); a.click(); a.remove()
       note('正在打包 DSH 环境…（配置/预设/技能包，大小约几十 MB）')
