@@ -2229,6 +2229,27 @@ export async function registerCreatorRoutes(ctx) {
           return
         }
 
+        if (route === 'memory-read' && req.method === 'GET') {
+          // 3.53.0 读记忆：单章记忆 / 前情链 / 段记忆，面板直接看得到
+          const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
+          const kind = url.searchParams.get('kind') || 'chapter'
+          const stem = String(url.searchParams.get('chapter') || '').replace(/\.md$/i, '')
+          if (kind === 'chain') {
+            const p = path.join(novelDir, 'memory', 'chain-' + stem + '.yml')
+            if (!existsSync(p)) { json(res, 404, { ok: false, error: '没有这一章的前情链：' + stem }); return }
+            json(res, 200, { ok: true, kind: 'chain', chapter: stem, rel: 'memory/chain-' + stem + '.yml', text: readFileSync(p, 'utf8') })
+            return
+          }
+          if (kind === 'segments') {
+            json(res, 200, { ok: true, kind: 'segments', items: listSegments(novelDir) })
+            return
+          }
+          const m = readChapterMemory(novelDir, stem)
+          if (m === null) { json(res, 404, { ok: false, error: '这一章还没有记忆：' + stem }); return }
+          json(res, 200, { ok: true, kind: 'chapter', chapter: stem, rel: 'memory/' + stem + '.yml', text: m })
+          return
+        }
+
         if (route === 'memory-health' && req.method === 'GET') {
           // 3.45.0 记忆健康度
           const novelDir = resolveNovelRoot(url.searchParams.get('path'), ctx.workspaceRegistry)
